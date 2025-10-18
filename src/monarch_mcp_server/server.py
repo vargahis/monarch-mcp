@@ -10,11 +10,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
+from mcp.server.auth.provider import AccessTokenT
 from mcp.server.fastmcp import FastMCP
 import mcp.types as types
 from monarchmoney import MonarchMoney, RequireMFAException
 from pydantic import BaseModel, Field
-from .secure_session import secure_session
+from monarch_mcp_server.secure_session import secure_session
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,9 +26,6 @@ load_dotenv()
 
 # Initialize FastMCP server
 mcp = FastMCP("Monarch Money MCP Server")
-
-# Global MonarchMoney instance
-_monarch_client: Optional[MonarchMoney] = None
 
 
 def run_async(coro):
@@ -58,38 +56,34 @@ class MonarchConfig(BaseModel):
 
 async def get_monarch_client() -> MonarchMoney:
     """Get or create MonarchMoney client instance using secure session storage."""
-    global _monarch_client
+    # Try to get authenticated client from secure session
+    client = secure_session.get_authenticated_client()
 
-    if _monarch_client is None:
-        # Try to get authenticated client from secure session
-        _monarch_client = secure_session.get_authenticated_client()
+    if client is not None:
+        logger.info("✅ Using authenticated client from secure keyring storage")
+        return client
 
-        if _monarch_client is not None:
-            logger.info("✅ Using authenticated client from secure keyring storage")
-            return _monarch_client
+    # If no secure session, try environment credentials
+    email = os.getenv("MONARCH_EMAIL")
+    password = os.getenv("MONARCH_PASSWORD")
 
-        # If no secure session, try environment credentials
-        email = os.getenv("MONARCH_EMAIL")
-        password = os.getenv("MONARCH_PASSWORD")
+    if email and password:
+        try:
+            client = MonarchMoney()
+            await client.login(email, password)
+            logger.info(
+                "Successfully logged into Monarch Money with environment credentials"
+            )
 
-        if email and password:
-            try:
-                _monarch_client = MonarchMoney()
-                await _monarch_client.login(email, password)
-                logger.info(
-                    "Successfully logged into Monarch Money with environment credentials"
-                )
+            # Save the session securely
+            secure_session.save_authenticated_session(client)
 
-                # Save the session securely
-                secure_session.save_authenticated_session(_monarch_client)
+            return client
+        except Exception as e:
+            logger.error(f"Failed to login to Monarch Money: {e}")
+            raise
 
-            except Exception as e:
-                logger.error(f"Failed to login to Monarch Money: {e}")
-                raise
-        else:
-            raise RuntimeError("🔐 Authentication needed! Run: python login_setup.py")
-
-    return _monarch_client
+    raise RuntimeError("🔐 Authentication needed! Run: python login_setup.py")
 
 
 @mcp.tool()
