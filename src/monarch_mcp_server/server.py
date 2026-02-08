@@ -13,8 +13,12 @@ from dotenv import load_dotenv
 from mcp.server.auth.provider import AccessTokenT
 from mcp.server.fastmcp import FastMCP
 import mcp.types as types
-from monarchmoney import MonarchMoney, RequireMFAException
+from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
 from pydantic import BaseModel, Field
+
+# Monarch Money migrated from api.monarchmoney.com to api.monarch.com
+# The library v0.1.15 still has the old domain hardcoded (unmaintained)
+MonarchMoneyEndpoints.BASE_URL = "https://api.monarch.com"
 from monarch_mcp_server.secure_session import secure_session
 
 # Configure logging
@@ -226,6 +230,7 @@ def get_transactions(
                 "id": txn.get("id"),
                 "date": txn.get("date"),
                 "amount": txn.get("amount"),
+                "original_name": txn.get("plaidName"),
                 "description": txn.get("description"),
                 "category": txn.get("category", {}).get("name")
                 if txn.get("category")
@@ -234,7 +239,10 @@ def get_transactions(
                 "merchant": txn.get("merchant", {}).get("name")
                 if txn.get("merchant")
                 else None,
+                "notes": txn.get("notes"),
                 "is_pending": txn.get("isPending", False),
+                "is_recurring": txn.get("isRecurring", False),
+                "tags": [tag.get("name") for tag in txn.get("tags", [])],
             }
             transaction_list.append(transaction_info)
 
