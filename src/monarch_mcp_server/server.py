@@ -29,8 +29,30 @@ load_dotenv()
 mcp = FastMCP("Monarch Money MCP Server")
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    """Heuristically detect whether an exception signals an expired/invalid token."""
+    msg = str(exc).lower()
+    if any(kw in msg for kw in ("unauthorized", "unauthenticated", "not authenticated")):
+        return True
+    if "token" in msg and any(kw in msg for kw in ("expired", "invalid", "revoked")):
+        return True
+    if "session" in msg and ("expired" in msg or "invalid" in msg):
+        return True
+    if "login" in msg and "required" in msg:
+        return True
+    if "401" in msg:
+        return True
+    return False
+
+
 def run_async(coro):
-    """Run async function in a new thread with its own event loop."""
+    """Run async function in a new thread with its own event loop.
+
+    If the coroutine raises what looks like an authentication error the
+    stale token is cleared from the keyring, the browser-based auth flow
+    is re-triggered, and a clear RuntimeError is raised so the calling
+    tool can inform the user.
+    """
 
     def _run():
         loop = asyncio.new_event_loop()
@@ -42,7 +64,18 @@ def run_async(coro):
 
     with ThreadPoolExecutor() as executor:
         future = executor.submit(_run)
-        return future.result()
+        try:
+            return future.result()
+        except Exception as exc:
+            if _is_auth_error(exc):
+                logger.warning("Token appears expired — clearing and triggering re-auth")
+                secure_session.delete_token()
+                trigger_auth_flow()
+                raise RuntimeError(
+                    "Your session has expired. A login page has been opened in "
+                    "your browser — please sign in and try again."
+                ) from exc
+            raise
 
 
 class MonarchConfig(BaseModel):
@@ -84,7 +117,12 @@ async def get_monarch_client() -> MonarchMoney:
             logger.error(f"Failed to login to Monarch Money: {e}")
             raise
 
-    raise RuntimeError("🔐 Authentication needed! Run: python login_setup.py")
+    # No credentials anywhere — open browser login and tell the user
+    trigger_auth_flow()
+    raise RuntimeError(
+        "🔐 Authentication needed! A login page has been opened in your "
+        "browser — please sign in and try again."
+    )
 
 
 @mcp.tool()

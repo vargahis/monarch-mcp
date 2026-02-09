@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 # Maximum time (seconds) the auth server will stay alive waiting for login
 _AUTH_TIMEOUT = 600  # 10 minutes
 
+# Guard: prevent multiple auth servers from running simultaneously
+_auth_lock = threading.Lock()
+_auth_server_active = False
+
 # ── HTML served to the browser ──────────────────────────────────────────
 
 _LOGIN_PAGE = """\
@@ -309,19 +313,30 @@ def trigger_auth_flow() -> None:
     This is non-blocking: a daemon thread runs the temporary HTTP server
     while the MCP server continues its normal startup.  The auth server
     shuts itself down once the user completes login or after a timeout.
+
+    Safe to call multiple times — only one auth server will run at a time.
     """
-    # Already authenticated via keyring
-    token = secure_session.load_token()
-    if token:
-        logger.info("Auth token found in keyring — skipping browser auth")
-        return
+    global _auth_server_active
 
-    # Environment-variable credentials present (handled at tool-call time)
-    if os.getenv("MONARCH_EMAIL") and os.getenv("MONARCH_PASSWORD"):
-        logger.info("Environment credentials found — skipping browser auth")
-        return
+    with _auth_lock:
+        if _auth_server_active:
+            logger.info("Auth server already running — skipping")
+            return
 
-    # Spin up the auth server
+        # Already authenticated via keyring
+        token = secure_session.load_token()
+        if token:
+            logger.info("Auth token found in keyring — skipping browser auth")
+            return
+
+        # Environment-variable credentials present (handled at tool-call time)
+        if os.getenv("MONARCH_EMAIL") and os.getenv("MONARCH_PASSWORD"):
+            logger.info("Environment credentials found — skipping browser auth")
+            return
+
+        _auth_server_active = True
+
+    # Spin up the auth server (outside the lock — no need to hold it)
     port = _find_free_port()
     state = _AuthState()
 
@@ -336,19 +351,23 @@ def trigger_auth_flow() -> None:
     server.timeout = 1  # unblock handle_request() every second to check state
 
     def _serve():
+        global _auth_server_active
         start = time.time()
         logger.info(f"Auth server listening on http://127.0.0.1:{port}")
-        while not state.completed:
-            server.handle_request()
-            if time.time() - start > _AUTH_TIMEOUT:
-                logger.warning(
-                    "Auth server timed out after %d seconds — shutting down",
-                    _AUTH_TIMEOUT,
-                )
-                break
-        server.server_close()
-        if state.completed:
-            logger.info("Auth server stopped — authentication complete")
+        try:
+            while not state.completed:
+                server.handle_request()
+                if time.time() - start > _AUTH_TIMEOUT:
+                    logger.warning(
+                        "Auth server timed out after %d seconds — shutting down",
+                        _AUTH_TIMEOUT,
+                    )
+                    break
+            server.server_close()
+            if state.completed:
+                logger.info("Auth server stopped — authentication complete")
+        finally:
+            _auth_server_active = False
 
     thread = threading.Thread(target=_serve, daemon=True, name="monarch-auth-server")
     thread.start()
