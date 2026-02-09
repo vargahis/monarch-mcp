@@ -59,20 +59,19 @@ My MonarchMoney referral: https://www.monarchmoney.com/referral/ufmn0r83yf?r_sou
 
 4. **Restart Claude Desktop**
 
-### 2. One-Time Authentication Setup
+### 2. Authentication
 
-**Important**: For security and MFA support, authentication is done outside of Claude Desktop.
+Authentication happens **automatically in your browser** the first time the MCP server starts without a saved session.
 
-Open Terminal and run:
-```bash
-cd /path/to/your/monarch-mcp-server
-python login_setup.py
-```
+1. Start (or restart) Claude Desktop
+2. The server detects that no token exists and opens a login page in your browser
+3. Enter your Monarch Money email and password
+4. Provide your 2FA code if you have MFA enabled
+5. Once authenticated, the token is saved to your system keyring — you're all set
 
-Follow the prompts:
-- Enter your Monarch Money email and password
-- Provide 2FA code if you have MFA enabled
-- Session will be saved automatically
+> **Alternative — CLI login**: You can also authenticate manually by running
+> `python login_setup.py` in a terminal. This is useful in headless environments
+> where a browser is not available.
 
 ### 3. Start Using in Claude Desktop
 
@@ -99,10 +98,11 @@ Once authenticated, use these tools directly in Claude Desktop:
 - **Get Cashflow**: Analyze financial cashflow over specified date ranges with income/expense breakdowns
 
 ### 🔐 Secure Authentication
-- **One-Time Setup**: Authenticate once, use for weeks/months
+- **Auto Browser Login**: A login page opens in your browser automatically when needed
+- **Automatic Re-auth**: If your session expires, the browser login is re-triggered on the next tool call
 - **MFA Support**: Full support for two-factor authentication
-- **Session Persistence**: No need to re-authenticate frequently
-- **Secure**: Credentials never pass through Claude Desktop
+- **Session Persistence**: Tokens are stored in the system keyring and last for weeks/months
+- **Secure**: Credentials are entered in your browser, never through Claude Desktop
 
 ## 🛠️ Available Tools
 
@@ -150,18 +150,19 @@ Get my cashflow for the last 3 months using get_cashflow
 
 ### Authentication Issues
 If you see "Authentication needed" errors:
-1. Run the setup command: `cd /path/to/your/monarch-mcp-server && python login_setup.py`
-2. Restart Claude Desktop
-3. Try using a tool like `get_accounts`
+1. A login page should open automatically in your browser — complete the sign-in there
+2. If the browser doesn't open, run `python login_setup.py` from a terminal as a fallback
+3. Restart Claude Desktop and try using a tool like `get_accounts`
 
 ### Session Expired
-Sessions last for weeks, but if expired:
-1. Run the same setup command again
-2. Enter your credentials and 2FA code
-3. Session will be refreshed automatically
+Sessions last for weeks, but if expired the server handles it automatically:
+1. The expired token is cleared from the keyring
+2. A new browser login page is opened
+3. Sign in again and retry your request
 
 ### Common Error Messages
-- **"No valid session found"**: Run `login_setup.py` 
+- **"Your session has expired"**: Complete the browser login that was opened and retry
+- **"Authentication needed"**: Complete the browser login or run `python login_setup.py`
 - **"Invalid account ID"**: Use `get_accounts` to see valid account IDs
 - **"Date format error"**: Use YYYY-MM-DD format for dates
 
@@ -172,24 +173,32 @@ Sessions last for weeks, but if expired:
 monarch-mcp-server/
 ├── src/monarch_mcp_server/
 │   ├── __init__.py
-│   └── server.py          # Main server implementation
-├── login_setup.py         # Authentication setup script
+│   ├── server.py          # Main server implementation
+│   ├── auth_server.py     # Browser-based authentication server
+│   └── secure_session.py  # Keyring-based token storage
+├── login_setup.py         # CLI authentication setup (fallback)
 ├── pyproject.toml         # Project configuration
 ├── requirements.txt       # Dependencies
 └── README.md             # This documentation
 ```
 
+### Authentication Flow
+1. On startup the server checks for a token in the system keyring
+2. If no token is found, a local HTTP server is started on a random port and the browser is opened to a login page
+3. The user signs in (with MFA if enabled); the token is saved to the keyring
+4. The temporary auth server shuts down automatically
+5. If a token later expires, the same flow is re-triggered on the next tool call
+
 ### Session Management
-- Sessions are stored securely in `.mm/mm_session.pickle`
-- Automatic session discovery and loading
+- Tokens are stored securely in the system keyring (service: `com.mcp.monarch-mcp-server`)
 - Sessions persist across Claude Desktop restarts
-- No need for frequent re-authentication
+- Expired tokens are detected automatically and cleared
 
 ### Security Features
-- Credentials never transmitted through Claude Desktop
+- Credentials are entered in your local browser, never transmitted through Claude Desktop
+- The auth server binds to `127.0.0.1` only (not accessible from the network)
 - MFA/2FA fully supported
-- Session files are encrypted
-- Authentication handled in secure terminal environment
+- Token stored in the OS keyring, not in plain-text files
 
 ## 🙏 Acknowledgments
 
@@ -210,13 +219,14 @@ MIT License
 
 For issues:
 1. Check authentication with `check_auth_status`
-2. Run the setup command again: `cd /path/to/your/monarch-mcp-server && python login_setup.py`
-3. Check error logs for detailed messages
-4. Ensure Monarch Money service is accessible
+2. Try any tool — if the token is missing or expired the browser login will open automatically
+3. As a fallback, run `python login_setup.py` from a terminal
+4. Check error logs for detailed messages
+5. Ensure Monarch Money service is accessible
 
 ## 🔄 Updates
 
 To update the server:
 1. Pull latest changes from repository
 2. Restart Claude Desktop
-3. Re-run authentication if needed: `python login_setup.py`
+3. If needed, re-authentication will happen automatically via the browser
