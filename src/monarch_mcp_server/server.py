@@ -422,20 +422,28 @@ def create_transaction(
 @mcp.tool()
 def update_transaction(
     transaction_id: str,
-    amount: Optional[float] = None,
-    description: Optional[str] = None,
     category_id: Optional[str] = None,
+    merchant_name: Optional[str] = None,
+    goal_id: Optional[str] = None,
+    amount: Optional[float] = None,
     date: Optional[str] = None,
+    hide_from_reports: Optional[bool] = None,
+    needs_review: Optional[bool] = None,
+    notes: Optional[str] = None,
 ) -> str:
     """
     Update an existing transaction in Monarch Money.
 
     Args:
         transaction_id: The ID of the transaction to update
-        amount: New transaction amount
-        description: New transaction description
         category_id: New category ID
+        merchant_name: New merchant name
+        goal_id: Goal ID to associate with the transaction
+        amount: New transaction amount
         date: New transaction date in YYYY-MM-DD format
+        hide_from_reports: Whether to hide the transaction from reports
+        needs_review: Whether the transaction needs review
+        notes: Transaction notes
     """
     try:
 
@@ -444,14 +452,22 @@ def update_transaction(
 
             update_data = {"transaction_id": transaction_id}
 
-            if amount is not None:
-                update_data["amount"] = amount
-            if description is not None:
-                update_data["description"] = description
             if category_id is not None:
                 update_data["category_id"] = category_id
+            if merchant_name is not None:
+                update_data["merchant_name"] = merchant_name
+            if goal_id is not None:
+                update_data["goal_id"] = goal_id
+            if amount is not None:
+                update_data["amount"] = amount
             if date is not None:
                 update_data["date"] = date
+            if hide_from_reports is not None:
+                update_data["hide_from_reports"] = hide_from_reports
+            if needs_review is not None:
+                update_data["needs_review"] = needs_review
+            if notes is not None:
+                update_data["notes"] = notes
 
             return await client.update_transaction(**update_data)
 
