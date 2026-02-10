@@ -93,6 +93,7 @@ Once authenticated, use these tools directly in Claude Desktop:
 - **Get Transactions**: Fetch transaction data with filtering by date, account, and pagination
 - **Create Transaction**: Add new transactions to accounts
 - **Update Transaction**: Modify existing transactions (amount, description, category, date)
+- **Tag Management**: Create, view, and apply tags to organize and categorize transactions
 
 ### 📈 Financial Analysis
 - **Get Budgets**: Access budget information including spent amounts and remaining balances
@@ -118,6 +119,9 @@ Once authenticated, use these tools directly in Claude Desktop:
 | `create_transaction` | Create new transaction | `account_id`, `amount`, `description`, `date`, `category_id`, `merchant_name` |
 | `update_transaction` | Update existing transaction | `transaction_id`, `amount`, `description`, `category_id`, `date` |
 | `refresh_accounts` | Request account data refresh | None |
+| `get_transaction_tags` | Get all transaction tags | None |
+| `create_transaction_tag` | Create new transaction tag | `name`, `color` |
+| `set_transaction_tags` | Set tags on a transaction | `transaction_id`, `tag_ids` |
 
 ## 📝 Usage Examples
 
@@ -139,6 +143,19 @@ Use get_budgets to show my current budget status
 ### Analyze Cash Flow
 ```
 Get my cashflow for the last 3 months using get_cashflow
+```
+
+### Manage Transaction Tags
+```
+Show me all my transaction tags using get_transaction_tags
+```
+
+```
+Create a new tag called "Business Expenses" with color "#FF5733" using create_transaction_tag
+```
+
+```
+Apply tags to a transaction: use set_transaction_tags with transaction_id and a list of tag_ids
 ```
 
 ## 📅 Date Formats

@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, date
 import json
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -242,7 +243,14 @@ def get_transactions(
                 "notes": txn.get("notes"),
                 "is_pending": txn.get("isPending", False),
                 "is_recurring": txn.get("isRecurring", False),
-                "tags": [tag.get("name") for tag in txn.get("tags", [])],
+                "tags": [
+                    {
+                        "id": tag.get("id"),
+                        "name": tag.get("name"),
+                        "color": tag.get("color"),
+                    }
+                    for tag in txn.get("tags", [])
+                ],
             }
             transaction_list.append(transaction_info)
 
@@ -459,6 +467,95 @@ def refresh_accounts() -> str:
     except Exception as e:
         logger.error(f"Failed to refresh accounts: {e}")
         return f"Error refreshing accounts: {str(e)}"
+
+
+@mcp.tool()
+def get_transaction_tags() -> str:
+    """Get all transaction tags from Monarch Money."""
+    try:
+
+        async def _get_transaction_tags():
+            client = await get_monarch_client()
+            return await client.get_transaction_tags()
+
+        tags = run_async(_get_transaction_tags())
+
+        # Format tags for display
+        tag_list = []
+        for tag in tags.get("tags", []):
+            tag_info = {
+                "id": tag.get("id"),
+                "name": tag.get("name"),
+                "color": tag.get("color"),
+                "order": tag.get("order"),
+                "transactionCount": tag.get("transactionCount"),
+            }
+            tag_list.append(tag_info)
+
+        return json.dumps(tag_list, indent=2, default=str)
+    except Exception as e:
+        logger.error(f"Failed to get transaction tags: {e}")
+        return f"Error getting transaction tags: {str(e)}"
+
+
+@mcp.tool()
+def create_transaction_tag(name: str, color: str) -> str:
+    """
+    Create a new transaction tag in Monarch Money.
+
+    Args:
+        name: Tag name (required)
+        color: Hex RGB color including # (required, e.g., "#19D2A5")
+    """
+    try:
+        # Validate color format
+        if not re.match(r"^#[0-9A-Fa-f]{6}$", color):
+            return json.dumps(
+                {
+                    "error": "Invalid color format. Use hex RGB with # (e.g., '#19D2A5')"
+                },
+                indent=2,
+            )
+
+        # Validate name
+        if not name or not name.strip():
+            return json.dumps({"error": "Tag name cannot be empty"}, indent=2)
+
+        async def _create_transaction_tag():
+            client = await get_monarch_client()
+            return await client.create_transaction_tag(name, color)
+
+        result = run_async(_create_transaction_tag())
+
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        logger.error(f"Failed to create transaction tag: {e}")
+        return f"Error creating transaction tag: {str(e)}"
+
+
+@mcp.tool()
+def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
+    """
+    Set tags on a transaction (replaces existing tags).
+
+    Args:
+        transaction_id: Transaction UUID (required)
+        tag_ids: List of tag IDs to apply (required, empty list removes all tags)
+
+    Note: This overwrites existing tags. To remove all tags, pass an empty list.
+    """
+    try:
+
+        async def _set_transaction_tags():
+            client = await get_monarch_client()
+            return await client.set_transaction_tags(transaction_id, tag_ids)
+
+        result = run_async(_set_transaction_tags())
+
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        logger.error(f"Failed to set transaction tags: {e}")
+        return f"Error setting transaction tags: {str(e)}"
 
 
 def main():
