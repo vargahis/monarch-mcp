@@ -6,7 +6,9 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 
 My MonarchMoney referral: https://www.monarchmoney.com/referral/ufmn0r83yf?r_source=share
 
-**Built with the [MonarchMoney Python library](https://github.com/hammem/monarchmoney) by [@hammem](https://github.com/hammem)** - A fantastic unofficial API for Monarch Money with full MFA support.
+**Built with the [monarchmoneycommunity Python library](https://pypi.org/project/monarchmoneycommunity/)** - A community-maintained fork of the MonarchMoney API that provides long-lived authentication tokens and full MFA support.
+
+> **Why this fork?** The original [hammem/monarchmoney](https://github.com/hammem/monarchmoney) library hardcodes `trusted_device: False`, resulting in 1-hour token expiration and frequent re-authentication. The monarchmoneycommunity fork (based on [bradleyseanf's work](https://github.com/bradleyseanf/monarchmoney)) sets `trusted_device: True` for long-lived tokens that last weeks/months, providing a much better user experience.
 
 <a href="https://glama.ai/mcp/servers/@robcerda/monarch-mcp-server">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@robcerda/monarch-mcp-server/badge" alt="monarch-mcp-server MCP server" />
@@ -219,14 +221,17 @@ monarch-mcp-server/
 
 ## 🙏 Acknowledgments
 
-This MCP server is built on top of the excellent [MonarchMoney Python library](https://github.com/hammem/monarchmoney) created by [@hammem](https://github.com/hammem). Their library provides the robust foundation that makes this integration possible, including:
+This MCP server is built on top of the [monarchmoneycommunity](https://pypi.org/project/monarchmoneycommunity/) Python library, a community-maintained fork that provides:
 
+- Long-lived authentication tokens (`trusted_device: True`)
 - Secure authentication with MFA support
 - Comprehensive API coverage for Monarch Money
 - Session management and persistence
-- Well-documented and maintained codebase
 
-Thank you to [@hammem](https://github.com/hammem) for creating and maintaining this essential library!
+Special thanks to:
+- [@hammem](https://github.com/hammem) for creating the original [monarchmoney](https://github.com/hammem/monarchmoney) library
+- [@bradleyseanf](https://github.com/bradleyseanf) for the fork that implements long-lived tokens
+- The community contributors maintaining the [monarchmoneycommunity](https://pypi.org/project/monarchmoneycommunity/) package
 
 ## 📄 License
 

@@ -17,9 +17,6 @@ import mcp.types as types
 from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
 from pydantic import BaseModel, Field
 
-# Monarch Money migrated from api.monarchmoney.com to api.monarch.com
-# The library v0.1.15 still has the old domain hardcoded (unmaintained)
-MonarchMoneyEndpoints.BASE_URL = "https://api.monarch.com"
 from monarch_mcp_server.secure_session import secure_session, is_auth_error
 from monarch_mcp_server.auth_server import trigger_auth_flow
 
