@@ -17,7 +17,7 @@ from pathlib import Path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
-from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
+from monarch_mcp_server.vendored_monarchmoney.monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
 from dotenv import load_dotenv
 
 # Monarch Money migrated from api.monarchmoney.com to api.monarch.com

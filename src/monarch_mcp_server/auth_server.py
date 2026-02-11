@@ -18,7 +18,7 @@ import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from concurrent.futures import ThreadPoolExecutor
 
-from monarchmoney import MonarchMoney, RequireMFAException
+from monarch_mcp_server.vendored_monarchmoney.monarchmoney import MonarchMoney, RequireMFAException
 
 from monarch_mcp_server.secure_session import secure_session, is_auth_error
 

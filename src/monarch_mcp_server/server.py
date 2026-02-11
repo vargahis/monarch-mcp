@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from mcp.server.auth.provider import AccessTokenT
 from mcp.server.fastmcp import FastMCP
 import mcp.types as types
-from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
+from monarch_mcp_server.vendored_monarchmoney.monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
 from pydantic import BaseModel, Field
 
 # Monarch Money migrated from api.monarchmoney.com to api.monarch.com
