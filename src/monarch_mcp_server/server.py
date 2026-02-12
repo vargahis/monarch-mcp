@@ -3,19 +3,14 @@
 import os
 import logging
 import asyncio
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, date
+from typing import List, Optional
 import json
 import re
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from mcp.server.auth.provider import AccessTokenT
 from mcp.server.fastmcp import FastMCP
-import mcp.types as types
-from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
-from pydantic import BaseModel, Field
+from monarchmoney import MonarchMoney
 
 from monarch_mcp_server.secure_session import secure_session, is_auth_error
 from monarch_mcp_server.auth_server import trigger_auth_flow
@@ -62,16 +57,6 @@ def run_async(coro):
                     "your browser — please sign in and try again."
                 ) from exc
             raise
-
-
-class MonarchConfig(BaseModel):
-    """Configuration for Monarch Money connection."""
-
-    email: Optional[str] = Field(default=None, description="Monarch Money email")
-    password: Optional[str] = Field(default=None, description="Monarch Money password")
-    session_file: str = Field(
-        default="monarch_session.json", description="Session file path"
-    )
 
 
 async def get_monarch_client() -> MonarchMoney:
@@ -227,23 +212,27 @@ def get_transactions(
     Args:
         limit: Number of transactions to retrieve (default: 100)
         offset: Number of transactions to skip (default: 0)
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
+        start_date: Start date in YYYY-MM-DD format (requires end_date)
+        end_date: End date in YYYY-MM-DD format (requires start_date)
         account_id: Specific account ID to filter by
     """
     try:
+        if bool(start_date) != bool(end_date):
+            return json.dumps(
+                {"error": "Both start_date and end_date are required when filtering by date."},
+                indent=2,
+            )
 
         async def _get_transactions():
             client = await get_monarch_client()
 
-            # Build filters
             filters = {}
             if start_date:
                 filters["start_date"] = start_date
             if end_date:
                 filters["end_date"] = end_date
             if account_id:
-                filters["account_id"] = account_id
+                filters["account_ids"] = [account_id]
 
             return await client.get_transactions(limit=limit, offset=offset, **filters)
 
@@ -257,7 +246,6 @@ def get_transactions(
                 "date": txn.get("date"),
                 "amount": txn.get("amount"),
                 "original_name": txn.get("plaidName"),
-                "description": txn.get("description"),
                 "category": txn.get("category", {}).get("name")
                 if txn.get("category")
                 else None,
@@ -266,7 +254,7 @@ def get_transactions(
                 if txn.get("merchant")
                 else None,
                 "notes": txn.get("notes"),
-                "is_pending": txn.get("isPending", False),
+                "is_pending": txn.get("pending", False),
                 "is_recurring": txn.get("isRecurring", False),
                 "tags": [
                     {
@@ -286,31 +274,30 @@ def get_transactions(
 
 
 @mcp.tool()
-def get_budgets() -> str:
-    """Get budget information from Monarch Money."""
+def get_budgets(
+    start_date: Optional[str] = None, end_date: Optional[str] = None
+) -> str:
+    """
+    Get budget information from Monarch Money.
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format (default: last month)
+        end_date: End date in YYYY-MM-DD format (default: next month)
+    """
     try:
 
         async def _get_budgets():
             client = await get_monarch_client()
-            return await client.get_budgets()
+            filters = {}
+            if start_date is not None:
+                filters["start_date"] = start_date
+            if end_date is not None:
+                filters["end_date"] = end_date
+            return await client.get_budgets(**filters)
 
         budgets = run_async(_get_budgets())
 
-        # Format budgets for display
-        budget_list = []
-        for budget in budgets.get("budgets", []):
-            budget_info = {
-                "id": budget.get("id"),
-                "name": budget.get("name"),
-                "amount": budget.get("amount"),
-                "spent": budget.get("spent"),
-                "remaining": budget.get("remaining"),
-                "category": budget.get("category", {}).get("name"),
-                "period": budget.get("period"),
-            }
-            budget_list.append(budget_info)
-
-        return json.dumps(budget_list, indent=2, default=str)
+        return json.dumps(budgets, indent=2, default=str)
     except Exception as e:
         logger.error(f"Failed to get budgets: {e}")
         return f"Error getting budgets: {str(e)}"
@@ -324,10 +311,15 @@ def get_cashflow(
     Get cashflow analysis from Monarch Money.
 
     Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
+        start_date: Start date in YYYY-MM-DD format (requires end_date; defaults to current month)
+        end_date: End date in YYYY-MM-DD format (requires start_date; defaults to current month)
     """
     try:
+        if bool(start_date) != bool(end_date):
+            return json.dumps(
+                {"error": "Both start_date and end_date are required when filtering by date."},
+                indent=2,
+            )
 
         async def _get_cashflow():
             client = await get_monarch_client()
@@ -374,10 +366,10 @@ def get_account_holdings(account_id: str) -> str:
 def create_transaction(
     account_id: str,
     amount: float,
-    description: str,
+    merchant_name: str,
+    category_id: str,
     date: str,
-    category_id: Optional[str] = None,
-    merchant_name: Optional[str] = None,
+    notes: Optional[str] = None,
 ) -> str:
     """
     Create a new transaction in Monarch Money.
@@ -385,29 +377,23 @@ def create_transaction(
     Args:
         account_id: The account ID to add the transaction to
         amount: Transaction amount (positive for income, negative for expenses)
-        description: Transaction description
+        merchant_name: Merchant name for the transaction
+        category_id: Category ID for the transaction
         date: Transaction date in YYYY-MM-DD format
-        category_id: Optional category ID
-        merchant_name: Optional merchant name
+        notes: Optional transaction notes
     """
     try:
 
         async def _create_transaction():
             client = await get_monarch_client()
-
-            transaction_data = {
-                "account_id": account_id,
-                "amount": amount,
-                "description": description,
-                "date": date,
-            }
-
-            if category_id:
-                transaction_data["category_id"] = category_id
-            if merchant_name:
-                transaction_data["merchant_name"] = merchant_name
-
-            return await client.create_transaction(**transaction_data)
+            return await client.create_transaction(
+                date=date,
+                account_id=account_id,
+                amount=amount,
+                merchant_name=merchant_name,
+                category_id=category_id,
+                notes=notes or "",
+            )
 
         result = run_async(_create_transaction())
 
@@ -484,7 +470,15 @@ def refresh_accounts() -> str:
 
         async def _refresh_accounts():
             client = await get_monarch_client()
-            return await client.request_accounts_refresh()
+            accounts = await client.get_accounts()
+            account_ids = [
+                account["id"]
+                for account in accounts.get("accounts", [])
+                if account.get("id")
+            ]
+            if not account_ids:
+                return {"error": "No accounts found to refresh."}
+            return await client.request_accounts_refresh(account_ids)
 
         result = run_async(_refresh_accounts())
 
@@ -507,7 +501,7 @@ def get_transaction_tags() -> str:
 
         # Format tags for display
         tag_list = []
-        for tag in tags.get("tags", []):
+        for tag in tags.get("householdTransactionTags", []):
             tag_info = {
                 "id": tag.get("id"),
                 "name": tag.get("name"),
