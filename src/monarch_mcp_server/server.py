@@ -285,6 +285,11 @@ def get_budgets(
         end_date: End date in YYYY-MM-DD format (default: next month)
     """
     try:
+        if bool(start_date) != bool(end_date):
+            return json.dumps(
+                {"error": "Both start_date and end_date are required when filtering by date."},
+                indent=2,
+            )
 
         async def _get_budgets():
             client = await get_monarch_client()

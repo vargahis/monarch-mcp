@@ -14,12 +14,18 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 2.3 — `get_transactions` with date range PASS: Jan 2025, 100 txns, all dates in range
 - [x] TEST 2.4 — `get_cashflow` PASS: returns `byCategory`, `byCategoryGroup`, `byMerchant`, `summary` keys correctly
 - [x] TEST 2.5 — `get_account_holdings` PASS: E*Trade MSCI account shows 335 shares MSCI stock
+- [ ] TEST 2.6 — `get_budgets` happy path (both dates)
+- [ ] TEST 2.7 — `get_budgets` happy path (no dates — defaults)
+- [ ] TEST 2.8 — `get_cashflow` happy path (no dates — defaults)
 
 ## Phase 3: Confirm Conditional Failures
 - [x] TEST 3.1 — Bug E CONFIRMED: `got an unexpected keyword argument 'account_id'. Did you mean 'account_ids'?`
 - [x] TEST 3.2 — Bug F CONFIRMED: `You must specify both a startDate and endDate`
 - [x] TEST 3.3 — Bug F CONFIRMED (end_date only): same error
 - [x] TEST 3.4 — Bug G CONFIRMED: `You must specify both a startDate and endDate`
+- [x] TEST 3.5 — Bug L CONFIRMED: `get_budgets(start_date=...)` → `"Error getting budgets: You must specify both a startDate and endDate, not just one of them."` (no client-side validation)
+- [x] TEST 3.6 — Bug L CONFIRMED (end_date only): same error
+- [ ] TEST 3.7 — `get_cashflow` with only `end_date` (Bug G variant)
 
 ## Phase 4: Verify Write Operations
 - [x] TEST 4.1 — `update_transaction` notes PASS. Also CONFIRMED Bug H: response shows `pending: true` but get_transactions reports `is_pending: false`
@@ -30,6 +36,24 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 4.6 — `create_transaction_tag` empty name PASS: validation caught (`"Tag name cannot be empty"`)
 - [x] TEST 4.7 — `set_transaction_tags` apply PASS: tag applied to transaction
 - [x] TEST 4.8 — `set_transaction_tags` remove PASS: empty list removes all tags
+- [ ] TEST 4.9 — `create_transaction` happy path (post-fix, with notes)
+- [ ] TEST 4.10 — `create_transaction` positive amount (income)
+- [ ] TEST 4.11 — `create_transaction` without optional `notes`
+- [ ] TEST 4.12 — `create_transaction` invalid account_id
+- [ ] TEST 4.13 — `create_transaction` invalid category_id
+- [ ] TEST 4.14 — `create_transaction` invalid date format
+- [ ] TEST 4.15 — `create_transaction` amount=0
+- [ ] TEST 4.16 — `update_transaction` update amount
+- [ ] TEST 4.17 — `update_transaction` update merchant_name
+- [ ] TEST 4.18 — `update_transaction` update date
+- [ ] TEST 4.19 — `update_transaction` toggle hide_from_reports
+- [ ] TEST 4.20 — `update_transaction` toggle needs_review
+- [ ] TEST 4.21 — `update_transaction` update multiple fields at once
+- [ ] TEST 4.22 — `update_transaction` update category_id
+- [ ] TEST 4.23 — `set_transaction_tags` apply multiple tags
+- [ ] TEST 4.24 — `set_transaction_tags` invalid transaction_id
+- [ ] TEST 4.25 — `set_transaction_tags` non-existent tag_ids
+- [ ] TEST 4.26 — `refresh_accounts` happy path (post-fix)
 
 ## Phase 5: Edge Cases and Boundary Testing
 - [x] TEST 5.1 — Pagination PASS: page 1 and page 2 have no overlapping IDs
@@ -42,17 +66,42 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 5.8 — 3-digit hex color PASS: validation caught
 - [x] TEST 5.9 — Whitespace-only name PASS: validation caught
 - [x] TEST 5.10 — Duplicate tag name: API rejects with `"A tag with this name already exists."` (no MCP-level check needed)
+- [ ] TEST 5.11 — `get_transactions` with account_id + date range combined
+- [ ] TEST 5.12 — `get_transactions` with negative limit
+- [ ] TEST 5.13 — `get_transactions` with negative offset
+- [ ] TEST 5.14 — `get_transactions` with very large limit (10000)
+- [ ] TEST 5.15 — `get_cashflow` with invalid date format
+- [ ] TEST 5.16 — `get_cashflow` with future dates
+- [ ] TEST 5.17 — `get_budgets` with invalid date format
+- [ ] TEST 5.18 — `get_budgets` with future dates
+- [ ] TEST 5.19 — `update_transaction` with invalid date format
+- [ ] TEST 5.20 — `create_transaction` with very large amount
 
 ## Phase 6: Authentication
 - [x] TEST 6.1 — `check_auth_status` PASS: "Authentication token found in secure keyring storage"
 - [x] TEST 6.2 — `debug_session_loading` PASS: "Token found in keyring (length: 64)"
 - [x] TEST 6.3 — `setup_authentication` PASS: returns instruction text
 
+## Phase 7: Input Sanitization and Special Characters
+- [ ] TEST 7.1 — Unicode in tag name
+- [ ] TEST 7.2 — Unicode in merchant name (create_transaction)
+- [ ] TEST 7.3 — Very long string in notes (update_transaction)
+- [ ] TEST 7.4 — Very long tag name
+- [ ] TEST 7.5 — HTML/script injection in merchant name
+- [ ] TEST 7.6 — Special characters in tag name
+
+## Phase 8: Auth Error Recovery
+- [ ] TEST 8.1 — Expired token triggers re-auth flow (manual/observational)
+- [ ] TEST 8.2 — `is_auth_error` correctly identifies 401/403 (unit test)
+
 ## Cleanup
 - [x] Revert modified transactions (notes reverted to empty)
 - [ ] Delete test tags "MCP-Test-Tag" and "Test Tag" via Monarch web UI
 - [x] Remove test tags from transactions (removed via `set_transaction_tags` empty list)
 - [ ] Delete test transaction (id: 235545705347956487, $1 "MCP Test Merchant", 2025-01-01) via Monarch web UI
+- [ ] Revert modified transactions from Phase 4 new tests (amounts, dates, merchants, categories, hide_from_reports, needs_review)
+- [ ] Delete test transactions from Tests 4.9-4.15, 5.20, 7.2 via Monarch web UI
+- [ ] Delete test tags from Phase 7 (Unicode, long name, special chars) via Monarch web UI
 
 ---
 
@@ -80,6 +129,10 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] Bug H — `is_pending` now shows `true` for pending transactions (was always `false`)
 - [x] Bug I — `description` field removed from output
 - [x] All 11 fixes verified working against live API
+
+## Potential New Bugs (from gap analysis)
+- [x] Fix Bug L — `get_budgets`: add `bool(start_date) != bool(end_date)` validation (same fix as Bugs F/G)
+- [x] Verify Bug L fix after MCP server restart — returns `{"error": "Both start_date and end_date are required when filtering by date."}`
 
 ## Unit Tests (after all fixes)
 - [ ] Design unit test architecture (mocking strategy, fixtures)
