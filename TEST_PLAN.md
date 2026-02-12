@@ -460,6 +460,27 @@ delete_transaction(transaction_id="<already_deleted_txn_id>")
 ```
 - Expected: Graceful error (transaction no longer exists)
 
+**TEST 4.30 — `delete_transaction_tag` — happy path**
+- Use a test tag ID from earlier tests
+```
+delete_transaction_tag(tag_id="<test_tag_id>")
+```
+- Verify: Returns `{"deleted": true, "tag_id": "<test_tag_id>"}`
+- Verify: Tag no longer appears in `get_transaction_tags`
+
+**TEST 4.31 — `delete_transaction_tag` — invalid tag_id**
+```
+delete_transaction_tag(tag_id="nonexistent-id-99999")
+```
+- Expected: Graceful error (GraphQL error propagated as string, not server crash)
+
+**TEST 4.32 — `delete_transaction_tag` — already deleted tag**
+- Use the same tag ID deleted in TEST 4.30
+```
+delete_transaction_tag(tag_id="<already_deleted_tag_id>")
+```
+- Expected: Graceful error or idempotent success
+
 **TEST 4.26 — `refresh_accounts` — happy path (post-fix)**
 ```
 refresh_accounts()
@@ -759,9 +780,10 @@ get_accounts()
 | `get_transaction_tags` | 1.3 | -- | -- | -- | 1 |
 | `create_transaction_tag` | -- | 4.4 | 4.5-4.6, 5.8-5.10 | 7.1, 7.4, 7.6 | 8 |
 | `delete_transaction` | -- | 4.27 | 4.28-4.29 | -- | 3 |
+| `delete_transaction_tag` | -- | 4.30 | 4.31-4.32 | -- | 3 |
 | `set_transaction_tags` | -- | 4.7-4.8, 4.23 | 4.24-4.25 | -- | 5 |
 | Auth error recovery | -- | -- | 8.1-8.2 | -- | 2 |
-| **Total** | | | | | **75** |
+| **Total** | | | | | **78** |
 
 ### Potential new bug found during gap analysis
 

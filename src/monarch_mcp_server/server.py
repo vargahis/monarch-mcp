@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from gql import gql
 from monarchmoney import MonarchMoney
 
 from monarch_mcp_server.secure_session import secure_session, is_auth_error
@@ -577,6 +578,42 @@ def create_transaction_tag(name: str, color: str) -> str:
     except Exception as e:
         logger.error(f"Failed to create transaction tag: {e}")
         return f"Error creating transaction tag: {str(e)}"
+
+
+@mcp.tool()
+def delete_transaction_tag(tag_id: str) -> str:
+    """
+    Delete a transaction tag from Monarch Money.
+
+    Args:
+        tag_id: The ID of the tag to delete
+    """
+    try:
+
+        async def _delete_transaction_tag():
+            client = await get_monarch_client()
+            mutation = gql(
+                """
+                mutation Common_DeleteTransactionTag($tagId: ID!) {
+                    deleteTransactionTag(tagId: $tagId) {
+                        __typename
+                    }
+                }
+                """
+            )
+            variables = {"tagId": tag_id}
+            return await client.gql_call(
+                operation="Common_DeleteTransactionTag",
+                graphql_query=mutation,
+                variables=variables,
+            )
+
+        run_async(_delete_transaction_tag())
+
+        return json.dumps({"deleted": True, "tag_id": tag_id}, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to delete transaction tag: {e}")
+        return f"Error deleting transaction tag: {str(e)}"
 
 
 @mcp.tool()
