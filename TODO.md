@@ -14,9 +14,9 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 2.3 — `get_transactions` with date range PASS: Jan 2025, 100 txns, all dates in range
 - [x] TEST 2.4 — `get_cashflow` PASS: returns `byCategory`, `byCategoryGroup`, `byMerchant`, `summary` keys correctly
 - [x] TEST 2.5 — `get_account_holdings` PASS: E*Trade MSCI account shows 335 shares MSCI stock
-- [ ] TEST 2.6 — `get_budgets` happy path (both dates)
-- [ ] TEST 2.7 — `get_budgets` happy path (no dates — defaults)
-- [ ] TEST 2.8 — `get_cashflow` happy path (no dates — defaults)
+- [x] TEST 2.6 — `get_budgets` happy path (both dates) PASS: returns budgetData with monthlyAmountsByCategory, categoryGroups, goalsV2, budgetSystem
+- [x] TEST 2.7 — `get_budgets` happy path (no dates) PASS: returns 114K chars of budget data with library defaults
+- [x] TEST 2.8 — `get_cashflow` happy path (no dates) PASS: returns current month data with byCategory, byCategoryGroup, byMerchant, summary
 
 ## Phase 3: Confirm Conditional Failures
 - [x] TEST 3.1 — Bug E CONFIRMED: `got an unexpected keyword argument 'account_id'. Did you mean 'account_ids'?`
@@ -25,7 +25,7 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 3.4 — Bug G CONFIRMED: `You must specify both a startDate and endDate`
 - [x] TEST 3.5 — Bug L CONFIRMED: `get_budgets(start_date=...)` → `"Error getting budgets: You must specify both a startDate and endDate, not just one of them."` (no client-side validation)
 - [x] TEST 3.6 — Bug L CONFIRMED (end_date only): same error
-- [ ] TEST 3.7 — `get_cashflow` with only `end_date` (Bug G variant)
+- [x] TEST 3.7 — `get_cashflow` end_date only PASS: returns `{"error": "Both start_date and end_date are required when filtering by date."}`
 
 ## Phase 4: Verify Write Operations
 - [x] TEST 4.1 — `update_transaction` notes PASS. Also CONFIRMED Bug H: response shows `pending: true` but get_transactions reports `is_pending: false`
@@ -36,24 +36,24 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 4.6 — `create_transaction_tag` empty name PASS: validation caught (`"Tag name cannot be empty"`)
 - [x] TEST 4.7 — `set_transaction_tags` apply PASS: tag applied to transaction
 - [x] TEST 4.8 — `set_transaction_tags` remove PASS: empty list removes all tags
-- [ ] TEST 4.9 — `create_transaction` happy path (post-fix, with notes)
-- [ ] TEST 4.10 — `create_transaction` positive amount (income)
-- [ ] TEST 4.11 — `create_transaction` without optional `notes`
-- [ ] TEST 4.12 — `create_transaction` invalid account_id
-- [ ] TEST 4.13 — `create_transaction` invalid category_id
-- [ ] TEST 4.14 — `create_transaction` invalid date format
-- [ ] TEST 4.15 — `create_transaction` amount=0
-- [ ] TEST 4.16 — `update_transaction` update amount
-- [ ] TEST 4.17 — `update_transaction` update merchant_name
-- [ ] TEST 4.18 — `update_transaction` update date
-- [ ] TEST 4.19 — `update_transaction` toggle hide_from_reports
-- [ ] TEST 4.20 — `update_transaction` toggle needs_review
-- [ ] TEST 4.21 — `update_transaction` update multiple fields at once
-- [ ] TEST 4.22 — `update_transaction` update category_id
-- [ ] TEST 4.23 — `set_transaction_tags` apply multiple tags
-- [ ] TEST 4.24 — `set_transaction_tags` invalid transaction_id
-- [ ] TEST 4.25 — `set_transaction_tags` non-existent tag_ids
-- [ ] TEST 4.26 — `refresh_accounts` happy path (post-fix)
+- [x] TEST 4.9 — `create_transaction` happy path PASS: created (id: 235547688408595608, -$15.50, with notes)
+- [x] TEST 4.10 — `create_transaction` positive amount PASS: created (id: 235547700793327387, +$100)
+- [x] TEST 4.11 — `create_transaction` without notes PASS: created (id: 235547701982412644, notes maps to "")
+- [x] TEST 4.12 — `create_transaction` invalid account_id PASS: graceful GraphQL error
+- [x] TEST 4.13 — `create_transaction` invalid category_id PASS: graceful GraphQL error
+- [x] TEST 4.14 — `create_transaction` invalid date format PASS: graceful error
+- [x] TEST 4.15 — `create_transaction` amount=0 PASS: API accepts zero-dollar transaction (id: 235547703143185777)
+- [x] TEST 4.16 — `update_transaction` update amount PASS: changed to -99.99, response reflects change
+- [x] TEST 4.17 — `update_transaction` update merchant_name PASS: changed to "MCP Updated Merchant"
+- [x] TEST 4.18 — `update_transaction` update date PASS: changed to 2025-06-15
+- [x] TEST 4.19 — `update_transaction` toggle hide_from_reports PASS: set to true, response shows `hideFromReports: true`
+- [x] TEST 4.20 — `update_transaction` toggle needs_review PASS: set to true, response shows `needsReview: true`
+- [x] TEST 4.21 — `update_transaction` multi-field update PASS: merchant, notes, needs_review all updated in one call
+- [x] TEST 4.22 — `update_transaction` update category_id PASS: changed to Groceries (224875122919620412)
+- [x] TEST 4.23 — `set_transaction_tags` apply multiple tags PASS: Tax + Reimburse both applied
+- [x] TEST 4.24 — `set_transaction_tags` invalid transaction_id PASS: graceful GraphQL error
+- [x] TEST 4.25 — `set_transaction_tags` non-existent tag_ids PASS: graceful GraphQL error
+- [x] TEST 4.26 — `refresh_accounts` happy path: previously verified in post-fix verification (returns `true`). Re-run blocked by auth expiry during testing.
 
 ## Phase 5: Edge Cases and Boundary Testing
 - [x] TEST 5.1 — Pagination PASS: page 1 and page 2 have no overlapping IDs
@@ -66,16 +66,16 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 5.8 — 3-digit hex color PASS: validation caught
 - [x] TEST 5.9 — Whitespace-only name PASS: validation caught
 - [x] TEST 5.10 — Duplicate tag name: API rejects with `"A tag with this name already exists."` (no MCP-level check needed)
-- [ ] TEST 5.11 — `get_transactions` with account_id + date range combined
-- [ ] TEST 5.12 — `get_transactions` with negative limit
-- [ ] TEST 5.13 — `get_transactions` with negative offset
-- [ ] TEST 5.14 — `get_transactions` with very large limit (10000)
-- [ ] TEST 5.15 — `get_cashflow` with invalid date format
-- [ ] TEST 5.16 — `get_cashflow` with future dates
-- [ ] TEST 5.17 — `get_budgets` with invalid date format
-- [ ] TEST 5.18 — `get_budgets` with future dates
-- [ ] TEST 5.19 — `update_transaction` with invalid date format
-- [ ] TEST 5.20 — `create_transaction` with very large amount
+- [x] TEST 5.11 — `get_transactions` account_id + date range combined PASS: 50 txns returned, all from BofA Checking in Jan 2025
+- [x] TEST 5.12 — `get_transactions` negative limit PASS: graceful GraphQL error ("Something went wrong")
+- [x] TEST 5.13 — `get_transactions` negative offset PASS: graceful GraphQL error
+- [x] TEST 5.14 — `get_transactions` limit=10000 PASS: returns empty error `"Error getting transactions: "` (same as limit=0, API rejects silently)
+- [x] TEST 5.15 — `get_cashflow` invalid date format PASS: graceful error ("Something went wrong while processing: None")
+- [x] TEST 5.16 — `get_cashflow` future dates PASS: returns structure with zero sums
+- [x] TEST 5.17 — `get_budgets` invalid date format PASS: graceful error ("Something went wrong while processing: None")
+- [x] TEST 5.18 — `get_budgets` future dates PASS: returns large structure (350K chars) with zero amounts
+- [x] TEST 5.19 — `update_transaction` invalid date format PASS: graceful error
+- [x] TEST 5.20 — `create_transaction` very large amount PASS: API accepts -$999,999,999.99 (id: 235547704210636217)
 
 ## Phase 6: Authentication
 - [x] TEST 6.1 — `check_auth_status` PASS: "Authentication token found in secure keyring storage"
@@ -83,25 +83,22 @@ Track progress across sessions. Update checkboxes as work proceeds.
 - [x] TEST 6.3 — `setup_authentication` PASS: returns instruction text
 
 ## Phase 7: Input Sanitization and Special Characters
-- [ ] TEST 7.1 — Unicode in tag name
-- [ ] TEST 7.2 — Unicode in merchant name (create_transaction)
-- [ ] TEST 7.3 — Very long string in notes (update_transaction)
-- [ ] TEST 7.4 — Very long tag name
-- [ ] TEST 7.5 — HTML/script injection in merchant name
-- [ ] TEST 7.6 — Special characters in tag name
+- [x] TEST 7.1 — Unicode tag name PASS: テスト-Tag-🏷️ created (id: 235547744666796027)
+- [x] TEST 7.2 — Unicode merchant PASS: カフェ Tokyo ☕ transaction created (id: 235547746415820466)
+- [x] TEST 7.3 — Very long notes (1000+ chars) PASS: stored without truncation
+- [x] TEST 7.4 — Very long tag name (200+ chars) PASS: API accepted (id: 235547747726540796)
+- [x] TEST 7.5 — HTML/script injection in merchant name: **BUG FOUND (Bug M)** — `<script>alert(1)</script>` triggers a 403 from Monarch's WAF, which `is_auth_error()` misidentifies as an expired token. This causes the valid token to be deleted and browser re-auth to open. The WAF 403 is NOT an auth error but `is_auth_error` treats all 403s as auth failures.
+- [x] TEST 7.6 — Special characters in tag name PASS: `Test & 'Quotes' "Double"` created (id: 235547748709056509)
 
 ## Phase 8: Auth Error Recovery
-- [ ] TEST 8.1 — Expired token triggers re-auth flow (manual/observational)
-- [ ] TEST 8.2 — `is_auth_error` correctly identifies 401/403 (unit test)
+- [x] TEST 8.1 — Expired token re-auth flow: OBSERVED naturally during testing. Auth expired, `run_async` detected it, deleted token, opened browser. User re-authenticated successfully. Also observed WAF 403 triggering false positive (see Bug M).
+- [ ] TEST 8.2 — `is_auth_error` correctly identifies 401/403 (unit test only)
 
 ## Cleanup
-- [x] Revert modified transactions (notes reverted to empty)
-- [ ] Delete test tags "MCP-Test-Tag" and "Test Tag" via Monarch web UI
+- [x] Revert modified transactions (notes, amount, date, merchant, category, hide_from_reports, needs_review all reverted)
+- [ ] Delete test tags via Monarch web UI: MCP-Test-Tag, Test Tag, テスト-Tag-🏷️, AAAA...(200+), Test & 'Quotes' "Double"
 - [x] Remove test tags from transactions (removed via `set_transaction_tags` empty list)
-- [ ] Delete test transaction (id: 235545705347956487, $1 "MCP Test Merchant", 2025-01-01) via Monarch web UI
-- [ ] Revert modified transactions from Phase 4 new tests (amounts, dates, merchants, categories, hide_from_reports, needs_review)
-- [ ] Delete test transactions from Tests 4.9-4.15, 5.20, 7.2 via Monarch web UI
-- [ ] Delete test tags from Phase 7 (Unicode, long name, special chars) via Monarch web UI
+- [ ] Delete test transactions via Monarch web UI (no delete_transaction tool): 235545705347956487, 235547688408595608, 235547700793327387, 235547701982412644, 235547703143185777, 235547704210636217, 235547746415820466
 
 ---
 
@@ -133,6 +130,7 @@ Track progress across sessions. Update checkboxes as work proceeds.
 ## Potential New Bugs (from gap analysis)
 - [x] Fix Bug L — `get_budgets`: add `bool(start_date) != bool(end_date)` validation (same fix as Bugs F/G)
 - [x] Verify Bug L fix after MCP server restart — returns `{"error": "Both start_date and end_date are required when filtering by date."}`
+- [ ] Fix Bug M — `is_auth_error()` treats WAF 403 as auth failure. Should distinguish auth 403 from WAF/content-filter 403. Discovered when `<script>` tag in merchant_name triggered Monarch's WAF, which returned 403, causing valid token deletion + unnecessary re-auth.
 
 ## Unit Tests (after all fixes)
 - [ ] Design unit test architecture (mocking strategy, fixtures)
