@@ -1,24 +1,22 @@
 """Monarch Money MCP Server - Main server implementation."""
 
-import os
-import logging
-import asyncio
-from typing import Any, Dict, List, Optional, Union
-from datetime import datetime, date
+import functools
 import json
+import logging
+import os
 import re
-import threading
+import traceback
+from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from mcp.server.auth.provider import AccessTokenT
 from mcp.server.fastmcp import FastMCP
-import mcp.types as types
-from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, RequireMFAException
-from pydantic import BaseModel, Field
+from gql import gql
+from gql.transport.exceptions import TransportServerError, TransportQueryError, TransportError
+from monarchmoney import MonarchMoney, LoginFailedException
 
 from monarch_mcp_server.secure_session import secure_session, is_auth_error
-from monarch_mcp_server.auth_server import trigger_auth_flow
+from monarch_mcp_server.auth_server import trigger_auth_flow, _run_sync
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -34,25 +32,19 @@ mcp = FastMCP("Monarch Money MCP Server")
 def run_async(coro):
     """Run async function in a new thread with its own event loop.
 
-    If the coroutine raises what looks like an authentication error the
-    stale token is cleared from the keyring, the browser-based auth flow
-    is re-triggered, and a clear RuntimeError is raised so the calling
-    tool can inform the user.
+    If the coroutine raises an authentication error (expired token,
+    invalid credentials), the stale token is cleared from the keyring,
+    the browser-based auth flow is re-triggered, and a RuntimeError is
+    raised so the calling tool can inform the user.
+
+    Only catches the two exception types that ``is_auth_error`` can
+    recognise; everything else propagates unchanged to the caller.
     """
-
-    def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
-
     with ThreadPoolExecutor() as executor:
-        future = executor.submit(_run)
+        future = executor.submit(_run_sync, coro)
         try:
             return future.result()
-        except Exception as exc:
+        except (TransportServerError, LoginFailedException) as exc:
             if is_auth_error(exc):
                 logger.warning("Token appears expired — clearing and triggering re-auth")
                 secure_session.delete_token()
@@ -64,15 +56,48 @@ def run_async(coro):
             raise
 
 
-class MonarchConfig(BaseModel):
-    """Configuration for Monarch Money connection."""
+# ── MCP tool error handling ────────────────────────────────────────────
 
-    email: Optional[str] = Field(default=None, description="Monarch Money email")
-    password: Optional[str] = Field(default=None, description="Monarch Money password")
-    session_file: str = Field(
-        default="monarch_session.json", description="Session file path"
-    )
+def _handle_mcp_errors(operation: str):
+    """Decorator providing granular exception handling for MCP tool functions.
 
+    Catches specific known exception types with appropriate log messages,
+    with a catch-all for anything unexpected.  Every path returns a
+    user-readable error string so the MCP tool never crashes.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except RuntimeError as exc:
+                logger.error("Runtime error %s: %s", operation, exc)
+                return f"Error {operation}: {exc}"
+            except TransportServerError as exc:
+                code = getattr(exc, "code", "unknown")
+                logger.error(
+                    "Monarch API HTTP %s error %s: %s", code, operation, exc,
+                )
+                return f"Error {operation}: Monarch API returned HTTP {code}: {exc}"
+            except TransportQueryError as exc:
+                logger.error("Monarch API query error %s: %s", operation, exc)
+                return f"Error {operation}: API query failed: {exc}"
+            except TransportError as exc:
+                logger.error(
+                    "Monarch API connection error %s: %s", operation, exc,
+                )
+                return f"Error {operation}: connection error: {exc}"
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logger.error(
+                    "Unexpected error %s: %s (%s)",
+                    operation, exc, type(exc).__name__,
+                )
+                return f"Error {operation}: {exc}"
+        return wrapper
+    return decorator
+
+
+# ── Client helpers ─────────────────────────────────────────────────────
 
 async def get_monarch_client() -> MonarchMoney:
     """Get or create MonarchMoney client instance using secure session storage."""
@@ -80,7 +105,7 @@ async def get_monarch_client() -> MonarchMoney:
     client = secure_session.get_authenticated_client()
 
     if client is not None:
-        logger.info("✅ Using authenticated client from secure keyring storage")
+        logger.info("Using authenticated client from secure keyring storage")
         return client
 
     # If no secure session, try environment credentials
@@ -100,44 +125,46 @@ async def get_monarch_client() -> MonarchMoney:
 
             return client
         except Exception as e:
-            logger.error(f"Failed to login to Monarch Money: {e}")
+            logger.error("Failed to login to Monarch Money: %s", e)
             raise
 
     # No credentials anywhere — open browser login and tell the user
     trigger_auth_flow()
     raise RuntimeError(
-        "🔐 Authentication needed! A login page has been opened in your "
+        "Authentication needed! A login page has been opened in your "
         "browser — please sign in and try again."
     )
 
 
+# ── Tools ──────────────────────────────────────────────────────────────
+
 @mcp.tool()
 def setup_authentication() -> str:
     """Get instructions for setting up secure authentication with Monarch Money."""
-    return """🔐 Monarch Money - Authentication
+    return """Monarch Money - Authentication
 
 Authentication happens automatically in your browser:
 
-1️⃣ When the MCP server starts without a saved session, a login page
+1. When the MCP server starts without a saved session, a login page
    opens in your browser automatically
 
-2️⃣ Enter your Monarch Money email and password
+2. Enter your Monarch Money email and password
 
-3️⃣ Provide your 2FA code if you have MFA enabled
+3. Provide your 2FA code if you have MFA enabled
 
-4️⃣ Once authenticated, the token is saved to your system keyring
+4. Once authenticated, the token is saved to your system keyring
 
 Then start using Monarch tools in Claude Desktop:
-   • get_accounts - View all accounts
-   • get_transactions - Recent transactions
-   • get_budgets - Budget information
+   - get_accounts - View all accounts
+   - get_transactions - Recent transactions
+   - get_budgets - Budget information
 
-✅ Session persists across Claude restarts (weeks/months)
-✅ Expired sessions are re-authenticated automatically
-✅ Credentials are entered in your browser, never through Claude
+Session persists across Claude restarts (weeks/months).
+Expired sessions are re-authenticated automatically.
+Credentials are entered in your browser, never through Claude.
 
-💡 Alternative: run `python login_setup.py` in a terminal for
-   headless environments where a browser is not available."""
+Alternative: run `python login_setup.py` in a terminal for
+headless environments where a browser is not available."""
 
 
 @mcp.tool()
@@ -147,21 +174,21 @@ def check_auth_status() -> str:
         # Check if we have a token in the keyring
         token = secure_session.load_token()
         if token:
-            status = "✅ Authentication token found in secure keyring storage\n"
+            status = "Authentication token found in secure keyring storage\n"
         else:
-            status = "❌ No authentication token found in keyring\n"
+            status = "No authentication token found in keyring\n"
 
         email = os.getenv("MONARCH_EMAIL")
         if email:
-            status += f"📧 Environment email: {email}\n"
+            status += f"Environment email: {email}\n"
 
         status += (
-            "\n💡 Try get_accounts to test connection or run login_setup.py if needed."
+            "\nTry get_accounts to test connection or run login_setup.py if needed."
         )
 
         return status
-    except Exception as e:
-        return f"Error checking auth status: {str(e)}"
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return f"Error checking auth status: {e}"
 
 
 @mcp.tool()
@@ -171,49 +198,47 @@ def debug_session_loading() -> str:
         # Check keyring access
         token = secure_session.load_token()
         if token:
-            return f"✅ Token found in keyring (length: {len(token)})"
-        else:
-            return "❌ No token found in keyring. Run login_setup.py to authenticate."
-    except Exception as e:
-        import traceback
-
+            return f"Token found in keyring (length: {len(token)})"
+        return "No token found in keyring. Run login_setup.py to authenticate."
+    except Exception as e:  # pylint: disable=broad-exception-caught
         error_details = traceback.format_exc()
-        return f"❌ Keyring access failed:\nError: {str(e)}\nType: {type(e)}\nTraceback:\n{error_details}"
+        return (
+            f"Keyring access failed:\nError: {e}\n"
+            f"Type: {type(e)}\nTraceback:\n{error_details}"
+        )
 
 
 @mcp.tool()
+@_handle_mcp_errors("getting accounts")
 def get_accounts() -> str:
     """Get all financial accounts from Monarch Money."""
-    try:
 
-        async def _get_accounts():
-            client = await get_monarch_client()
-            return await client.get_accounts()
+    async def _get_accounts():
+        client = await get_monarch_client()
+        return await client.get_accounts()
 
-        accounts = run_async(_get_accounts())
+    accounts = run_async(_get_accounts())
 
-        # Format accounts for display
-        account_list = []
-        for account in accounts.get("accounts", []):
-            account_info = {
-                "id": account.get("id"),
-                "name": account.get("displayName") or account.get("name"),
-                "type": (account.get("type") or {}).get("name"),
-                "balance": account.get("currentBalance"),
-                "institution": (account.get("institution") or {}).get("name"),
-                "is_active": account.get("isActive")
-                if "isActive" in account
-                else not account.get("deactivatedAt"),
-            }
-            account_list.append(account_info)
+    # Format accounts for display
+    account_list = []
+    for account in accounts.get("accounts", []):
+        account_info = {
+            "id": account.get("id"),
+            "name": account.get("displayName") or account.get("name"),
+            "type": (account.get("type") or {}).get("name"),
+            "balance": account.get("currentBalance"),
+            "institution": (account.get("institution") or {}).get("name"),
+            "is_active": account.get("isActive")
+            if "isActive" in account
+            else not account.get("deactivatedAt"),
+        }
+        account_list.append(account_info)
 
-        return json.dumps(account_list, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to get accounts: {e}")
-        return f"Error getting accounts: {str(e)}"
+    return json.dumps(account_list, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("getting transactions")
 def get_transactions(
     limit: int = 100,
     offset: int = 0,
@@ -227,96 +252,97 @@ def get_transactions(
     Args:
         limit: Number of transactions to retrieve (default: 100)
         offset: Number of transactions to skip (default: 0)
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
+        start_date: Start date in YYYY-MM-DD format (requires end_date)
+        end_date: End date in YYYY-MM-DD format (requires start_date)
         account_id: Specific account ID to filter by
     """
-    try:
+    if bool(start_date) != bool(end_date):
+        return json.dumps(
+            {"error": "Both start_date and end_date are required when filtering by date."},
+            indent=2,
+        )
 
-        async def _get_transactions():
-            client = await get_monarch_client()
+    async def _get_transactions():
+        client = await get_monarch_client()
 
-            # Build filters
-            filters = {}
-            if start_date:
-                filters["start_date"] = start_date
-            if end_date:
-                filters["end_date"] = end_date
-            if account_id:
-                filters["account_id"] = account_id
+        filters = {}
+        if start_date:
+            filters["start_date"] = start_date
+        if end_date:
+            filters["end_date"] = end_date
+        if account_id:
+            filters["account_ids"] = [account_id]
 
-            return await client.get_transactions(limit=limit, offset=offset, **filters)
+        return await client.get_transactions(limit=limit, offset=offset, **filters)
 
-        transactions = run_async(_get_transactions())
+    transactions = run_async(_get_transactions())
 
-        # Format transactions for display
-        transaction_list = []
-        for txn in transactions.get("allTransactions", {}).get("results", []):
-            transaction_info = {
-                "id": txn.get("id"),
-                "date": txn.get("date"),
-                "amount": txn.get("amount"),
-                "original_name": txn.get("plaidName"),
-                "description": txn.get("description"),
-                "category": txn.get("category", {}).get("name")
-                if txn.get("category")
-                else None,
-                "account": txn.get("account", {}).get("displayName"),
-                "merchant": txn.get("merchant", {}).get("name")
-                if txn.get("merchant")
-                else None,
-                "notes": txn.get("notes"),
-                "is_pending": txn.get("isPending", False),
-                "is_recurring": txn.get("isRecurring", False),
-                "tags": [
-                    {
-                        "id": tag.get("id"),
-                        "name": tag.get("name"),
-                        "color": tag.get("color"),
-                    }
-                    for tag in txn.get("tags", [])
-                ],
-            }
-            transaction_list.append(transaction_info)
+    # Format transactions for display
+    transaction_list = []
+    for txn in transactions.get("allTransactions", {}).get("results", []):
+        transaction_info = {
+            "id": txn.get("id"),
+            "date": txn.get("date"),
+            "amount": txn.get("amount"),
+            "original_name": txn.get("plaidName"),
+            "category": txn.get("category", {}).get("name")
+            if txn.get("category")
+            else None,
+            "account": txn.get("account", {}).get("displayName"),
+            "merchant": txn.get("merchant", {}).get("name")
+            if txn.get("merchant")
+            else None,
+            "notes": txn.get("notes"),
+            "is_pending": txn.get("pending", False),
+            "is_recurring": txn.get("isRecurring", False),
+            "tags": [
+                {
+                    "id": tag.get("id"),
+                    "name": tag.get("name"),
+                    "color": tag.get("color"),
+                }
+                for tag in txn.get("tags", [])
+            ],
+        }
+        transaction_list.append(transaction_info)
 
-        return json.dumps(transaction_list, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to get transactions: {e}")
-        return f"Error getting transactions: {str(e)}"
-
-
-@mcp.tool()
-def get_budgets() -> str:
-    """Get budget information from Monarch Money."""
-    try:
-
-        async def _get_budgets():
-            client = await get_monarch_client()
-            return await client.get_budgets()
-
-        budgets = run_async(_get_budgets())
-
-        # Format budgets for display
-        budget_list = []
-        for budget in budgets.get("budgets", []):
-            budget_info = {
-                "id": budget.get("id"),
-                "name": budget.get("name"),
-                "amount": budget.get("amount"),
-                "spent": budget.get("spent"),
-                "remaining": budget.get("remaining"),
-                "category": budget.get("category", {}).get("name"),
-                "period": budget.get("period"),
-            }
-            budget_list.append(budget_info)
-
-        return json.dumps(budget_list, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to get budgets: {e}")
-        return f"Error getting budgets: {str(e)}"
+    return json.dumps(transaction_list, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("getting budgets")
+def get_budgets(
+    start_date: Optional[str] = None, end_date: Optional[str] = None
+) -> str:
+    """
+    Get budget information from Monarch Money.
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format (default: last month)
+        end_date: End date in YYYY-MM-DD format (default: next month)
+    """
+    if bool(start_date) != bool(end_date):
+        return json.dumps(
+            {"error": "Both start_date and end_date are required when filtering by date."},
+            indent=2,
+        )
+
+    async def _get_budgets():
+        client = await get_monarch_client()
+        filters = {}
+        if start_date is not None:
+            filters["start_date"] = start_date
+        if end_date is not None:
+            filters["end_date"] = end_date
+        return await client.get_budgets(**filters)
+
+    budgets = run_async(_get_budgets())
+
+    return json.dumps(budgets, indent=2, default=str)
+
+
+@mcp.tool()
+@_handle_mcp_errors("getting cashflow")
 def get_cashflow(
     start_date: Optional[str] = None, end_date: Optional[str] = None
 ) -> str:
@@ -324,31 +350,33 @@ def get_cashflow(
     Get cashflow analysis from Monarch Money.
 
     Args:
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
+        start_date: Start date in YYYY-MM-DD format (requires end_date; defaults to current month)
+        end_date: End date in YYYY-MM-DD format (requires start_date; defaults to current month)
     """
-    try:
+    if bool(start_date) != bool(end_date):
+        return json.dumps(
+            {"error": "Both start_date and end_date are required when filtering by date."},
+            indent=2,
+        )
 
-        async def _get_cashflow():
-            client = await get_monarch_client()
+    async def _get_cashflow():
+        client = await get_monarch_client()
 
-            filters = {}
-            if start_date:
-                filters["start_date"] = start_date
-            if end_date:
-                filters["end_date"] = end_date
+        filters = {}
+        if start_date:
+            filters["start_date"] = start_date
+        if end_date:
+            filters["end_date"] = end_date
 
-            return await client.get_cashflow(**filters)
+        return await client.get_cashflow(**filters)
 
-        cashflow = run_async(_get_cashflow())
+    cashflow = run_async(_get_cashflow())
 
-        return json.dumps(cashflow, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to get cashflow: {e}")
-        return f"Error getting cashflow: {str(e)}"
+    return json.dumps(cashflow, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("getting account holdings")
 def get_account_holdings(account_id: str) -> str:
     """
     Get investment holdings for a specific account.
@@ -356,28 +384,25 @@ def get_account_holdings(account_id: str) -> str:
     Args:
         account_id: The ID of the investment account
     """
-    try:
 
-        async def _get_holdings():
-            client = await get_monarch_client()
-            return await client.get_account_holdings(account_id)
+    async def _get_holdings():
+        client = await get_monarch_client()
+        return await client.get_account_holdings(account_id)
 
-        holdings = run_async(_get_holdings())
+    holdings = run_async(_get_holdings())
 
-        return json.dumps(holdings, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to get account holdings: {e}")
-        return f"Error getting account holdings: {str(e)}"
+    return json.dumps(holdings, indent=2, default=str)
 
 
 @mcp.tool()
-def create_transaction(
+@_handle_mcp_errors("creating transaction")
+def create_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_id: str,
     amount: float,
-    description: str,
+    merchant_name: str,
+    category_id: str,
     date: str,
-    category_id: Optional[str] = None,
-    merchant_name: Optional[str] = None,
+    notes: Optional[str] = None,
 ) -> str:
     """
     Create a new transaction in Monarch Money.
@@ -385,40 +410,31 @@ def create_transaction(
     Args:
         account_id: The account ID to add the transaction to
         amount: Transaction amount (positive for income, negative for expenses)
-        description: Transaction description
+        merchant_name: Merchant name for the transaction
+        category_id: Category ID for the transaction
         date: Transaction date in YYYY-MM-DD format
-        category_id: Optional category ID
-        merchant_name: Optional merchant name
+        notes: Optional transaction notes
     """
-    try:
 
-        async def _create_transaction():
-            client = await get_monarch_client()
+    async def _create_transaction():
+        client = await get_monarch_client()
+        return await client.create_transaction(
+            date=date,
+            account_id=account_id,
+            amount=amount,
+            merchant_name=merchant_name,
+            category_id=category_id,
+            notes=notes or "",
+        )
 
-            transaction_data = {
-                "account_id": account_id,
-                "amount": amount,
-                "description": description,
-                "date": date,
-            }
+    result = run_async(_create_transaction())
 
-            if category_id:
-                transaction_data["category_id"] = category_id
-            if merchant_name:
-                transaction_data["merchant_name"] = merchant_name
-
-            return await client.create_transaction(**transaction_data)
-
-        result = run_async(_create_transaction())
-
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to create transaction: {e}")
-        return f"Error creating transaction: {str(e)}"
+    return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
-def update_transaction(
+@_handle_mcp_errors("updating transaction")
+def update_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     transaction_id: str,
     category_id: Optional[str] = None,
     merchant_name: Optional[str] = None,
@@ -443,87 +459,105 @@ def update_transaction(
         needs_review: Whether the transaction needs review
         notes: Transaction notes
     """
-    try:
 
-        async def _update_transaction():
-            client = await get_monarch_client()
+    async def _update_transaction():
+        client = await get_monarch_client()
 
-            update_data = {"transaction_id": transaction_id}
+        update_data = {"transaction_id": transaction_id}
 
-            if category_id is not None:
-                update_data["category_id"] = category_id
-            if merchant_name is not None:
-                update_data["merchant_name"] = merchant_name
-            if goal_id is not None:
-                update_data["goal_id"] = goal_id
-            if amount is not None:
-                update_data["amount"] = amount
-            if date is not None:
-                update_data["date"] = date
-            if hide_from_reports is not None:
-                update_data["hide_from_reports"] = hide_from_reports
-            if needs_review is not None:
-                update_data["needs_review"] = needs_review
-            if notes is not None:
-                update_data["notes"] = notes
+        if category_id is not None:
+            update_data["category_id"] = category_id
+        if merchant_name is not None:
+            update_data["merchant_name"] = merchant_name
+        if goal_id is not None:
+            update_data["goal_id"] = goal_id
+        if amount is not None:
+            update_data["amount"] = amount
+        if date is not None:
+            update_data["date"] = date
+        if hide_from_reports is not None:
+            update_data["hide_from_reports"] = hide_from_reports
+        if needs_review is not None:
+            update_data["needs_review"] = needs_review
+        if notes is not None:
+            update_data["notes"] = notes
 
-            return await client.update_transaction(**update_data)
+        return await client.update_transaction(**update_data)
 
-        result = run_async(_update_transaction())
+    result = run_async(_update_transaction())
 
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to update transaction: {e}")
-        return f"Error updating transaction: {str(e)}"
+    return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("deleting transaction")
+def delete_transaction(transaction_id: str) -> str:
+    """
+    Delete a transaction from Monarch Money.
+
+    Args:
+        transaction_id: The ID of the transaction to delete
+    """
+
+    async def _delete_transaction():
+        client = await get_monarch_client()
+        return await client.delete_transaction(transaction_id)
+
+    run_async(_delete_transaction())
+
+    return json.dumps({"deleted": True, "transaction_id": transaction_id}, indent=2)
+
+
+@mcp.tool()
+@_handle_mcp_errors("refreshing accounts")
 def refresh_accounts() -> str:
     """Request account data refresh from financial institutions."""
-    try:
 
-        async def _refresh_accounts():
-            client = await get_monarch_client()
-            return await client.request_accounts_refresh()
+    async def _refresh_accounts():
+        client = await get_monarch_client()
+        accounts = await client.get_accounts()
+        account_ids = [
+            account["id"]
+            for account in accounts.get("accounts", [])
+            if account.get("id")
+        ]
+        if not account_ids:
+            return {"error": "No accounts found to refresh."}
+        return await client.request_accounts_refresh(account_ids)
 
-        result = run_async(_refresh_accounts())
+    result = run_async(_refresh_accounts())
 
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to refresh accounts: {e}")
-        return f"Error refreshing accounts: {str(e)}"
+    return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("getting transaction tags")
 def get_transaction_tags() -> str:
     """Get all transaction tags from Monarch Money."""
-    try:
 
-        async def _get_transaction_tags():
-            client = await get_monarch_client()
-            return await client.get_transaction_tags()
+    async def _get_transaction_tags():
+        client = await get_monarch_client()
+        return await client.get_transaction_tags()
 
-        tags = run_async(_get_transaction_tags())
+    tags = run_async(_get_transaction_tags())
 
-        # Format tags for display
-        tag_list = []
-        for tag in tags.get("tags", []):
-            tag_info = {
-                "id": tag.get("id"),
-                "name": tag.get("name"),
-                "color": tag.get("color"),
-                "order": tag.get("order"),
-                "transactionCount": tag.get("transactionCount"),
-            }
-            tag_list.append(tag_info)
+    # Format tags for display
+    tag_list = []
+    for tag in tags.get("householdTransactionTags", []):
+        tag_info = {
+            "id": tag.get("id"),
+            "name": tag.get("name"),
+            "color": tag.get("color"),
+            "order": tag.get("order"),
+            "transactionCount": tag.get("transactionCount"),
+        }
+        tag_list.append(tag_info)
 
-        return json.dumps(tag_list, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to get transaction tags: {e}")
-        return f"Error getting transaction tags: {str(e)}"
+    return json.dumps(tag_list, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("creating transaction tag")
 def create_transaction_tag(name: str, color: str) -> str:
     """
     Create a new transaction tag in Monarch Money.
@@ -532,33 +566,63 @@ def create_transaction_tag(name: str, color: str) -> str:
         name: Tag name (required)
         color: Hex RGB color including # (required, e.g., "#19D2A5")
     """
-    try:
-        # Validate color format
-        if not re.match(r"^#[0-9A-Fa-f]{6}$", color):
-            return json.dumps(
-                {
-                    "error": "Invalid color format. Use hex RGB with # (e.g., '#19D2A5')"
-                },
-                indent=2,
-            )
+    # Validate color format
+    if not re.match(r"^#[0-9A-Fa-f]{6}$", color):
+        return json.dumps(
+            {
+                "error": "Invalid color format. Use hex RGB with # (e.g., '#19D2A5')"
+            },
+            indent=2,
+        )
 
-        # Validate name
-        if not name or not name.strip():
-            return json.dumps({"error": "Tag name cannot be empty"}, indent=2)
+    # Validate name
+    if not name or not name.strip():
+        return json.dumps({"error": "Tag name cannot be empty"}, indent=2)
 
-        async def _create_transaction_tag():
-            client = await get_monarch_client()
-            return await client.create_transaction_tag(name, color)
+    async def _create_transaction_tag():
+        client = await get_monarch_client()
+        return await client.create_transaction_tag(name, color)
 
-        result = run_async(_create_transaction_tag())
+    result = run_async(_create_transaction_tag())
 
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to create transaction tag: {e}")
-        return f"Error creating transaction tag: {str(e)}"
+    return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
+@_handle_mcp_errors("deleting transaction tag")
+def delete_transaction_tag(tag_id: str) -> str:
+    """
+    Delete a transaction tag from Monarch Money.
+
+    Args:
+        tag_id: The ID of the tag to delete
+    """
+
+    async def _delete_transaction_tag():
+        client = await get_monarch_client()
+        mutation = gql(
+            """
+            mutation Common_DeleteTransactionTag($tagId: ID!) {
+                deleteTransactionTag(tagId: $tagId) {
+                    __typename
+                }
+            }
+            """
+        )
+        variables = {"tagId": tag_id}
+        return await client.gql_call(
+            operation="Common_DeleteTransactionTag",
+            graphql_query=mutation,
+            variables=variables,
+        )
+
+    run_async(_delete_transaction_tag())
+
+    return json.dumps({"deleted": True, "tag_id": tag_id}, indent=2)
+
+
+@mcp.tool()
+@_handle_mcp_errors("setting transaction tags")
 def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
     """
     Set tags on a transaction (replaces existing tags).
@@ -569,18 +633,14 @@ def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
 
     Note: This overwrites existing tags. To remove all tags, pass an empty list.
     """
-    try:
 
-        async def _set_transaction_tags():
-            client = await get_monarch_client()
-            return await client.set_transaction_tags(transaction_id, tag_ids)
+    async def _set_transaction_tags():
+        client = await get_monarch_client()
+        return await client.set_transaction_tags(transaction_id, tag_ids)
 
-        result = run_async(_set_transaction_tags())
+    result = run_async(_set_transaction_tags())
 
-        return json.dumps(result, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"Failed to set transaction tags: {e}")
-        return f"Error setting transaction tags: {str(e)}"
+    return json.dumps(result, indent=2, default=str)
 
 
 def main():
@@ -592,8 +652,8 @@ def main():
 
     try:
         mcp.run()
-    except Exception as e:
-        logger.error(f"Failed to run server: {str(e)}")
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to run server: %s", e)
         raise
 
 
