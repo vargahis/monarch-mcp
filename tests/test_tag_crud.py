@@ -1,4 +1,5 @@
 """Phase 5: Tag CRUD tests (13 tests)."""
+# pylint: disable=missing-function-docstring
 
 import json
 
@@ -52,7 +53,7 @@ def test_create_tag_happy(mock_monarch_client):
 
 
 # ===================================================================
-# 5.3 – invalid color "red" → local validation error
+# 5.3 – invalid color "red" -> local validation error
 # ===================================================================
 
 
@@ -64,7 +65,7 @@ def test_create_tag_invalid_color_word(mock_monarch_client):
 
 
 # ===================================================================
-# 5.4 – short hex "#F00" → local validation error
+# 5.4 – short hex "#F00" -> local validation error
 # ===================================================================
 
 
@@ -76,7 +77,7 @@ def test_create_tag_short_hex(mock_monarch_client):
 
 
 # ===================================================================
-# 5.5 – empty name → local validation error
+# 5.5 – empty name -> local validation error
 # ===================================================================
 
 
@@ -88,7 +89,7 @@ def test_create_tag_empty_name(mock_monarch_client):
 
 
 # ===================================================================
-# 5.6 – whitespace name → local validation error
+# 5.6 – whitespace name -> local validation error
 # ===================================================================
 
 
@@ -100,7 +101,7 @@ def test_create_tag_whitespace_name(mock_monarch_client):
 
 
 # ===================================================================
-# 5.7 – duplicate name → API accepts (returns new tag)
+# 5.7 – duplicate name -> API accepts (returns new tag)
 # ===================================================================
 
 
@@ -190,7 +191,7 @@ def test_delete_tag_happy(mock_monarch_client):
 
 
 # ===================================================================
-# 5.12 – delete tag invalid ID → API error
+# 5.12 – delete tag invalid ID -> API error
 # ===================================================================
 
 
@@ -204,7 +205,7 @@ def test_delete_tag_invalid_id(mock_monarch_client):
 
 
 # ===================================================================
-# 5.13 – delete already-deleted ID → API error
+# 5.13 – delete already-deleted ID -> API error
 # ===================================================================
 
 

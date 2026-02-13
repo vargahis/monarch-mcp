@@ -8,6 +8,7 @@ keyring once the user authenticates.
 """
 
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -16,9 +17,9 @@ import threading
 import time
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from concurrent.futures import ThreadPoolExecutor
 
-from monarchmoney import MonarchMoney, RequireMFAException
+from gql.transport.exceptions import TransportServerError
+from monarchmoney import MonarchMoney, RequireMFAException, LoginFailedException
 
 from monarch_mcp_server.secure_session import secure_session, is_auth_error
 
@@ -29,7 +30,7 @@ _AUTH_TIMEOUT = 600  # 10 minutes
 
 # Guard: prevent multiple auth servers from running simultaneously
 _auth_lock = threading.Lock()
-_auth_server_active = False
+_auth_guard: dict[str, bool] = {"active": False}
 
 # ── HTML served to the browser ──────────────────────────────────────────
 
@@ -163,8 +164,15 @@ document.getElementById('code').addEventListener('keydown',e=>{if(e.key==='Enter
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
-def _run_async(coro):
-    """Run an async coroutine synchronously in a fresh event loop."""
+def _find_free_port() -> int:
+    """Find an available TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _run_sync(coro):
+    """Run an async coroutine synchronously in a one-shot event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -173,15 +181,9 @@ def _run_async(coro):
         loop.close()
 
 
-def _find_free_port() -> int:
-    """Find an available TCP port on localhost."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 # ── Request handler ─────────────────────────────────────────────────────
 
+@dataclass
 class _AuthState:
     """Mutable state shared between handler and server loop."""
     email: str = ""
@@ -198,7 +200,8 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
     # ── GET ──
 
-    def do_GET(self):
+    def do_GET(self):  # pylint: disable=invalid-name
+        """Serve the login page for GET /."""
         if self.path == "/":
             self._send_html(_LOGIN_PAGE)
         else:
@@ -206,12 +209,13 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
     # ── POST ──
 
-    def do_POST(self):
+    def do_POST(self):  # pylint: disable=invalid-name
+        """Handle POST requests for /login and /mfa."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode()
             data = json.loads(body) if body else {}
-        except Exception:
+        except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
             self._send_json({"error": "Invalid request body"})
             return
 
@@ -225,6 +229,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
     # ── Auth logic ──
 
     def _handle_login(self, data: dict):
+        """Authenticate with email/password, handling MFA if required."""
         email = data.get("email", "").strip()
         password = data.get("password", "")
 
@@ -234,7 +239,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
         try:
             mm = MonarchMoney()
-            _run_async(mm.login(email, password, use_saved_session=False, save_session=False))
+            _run_sync(mm.login(email, password, use_saved_session=False, save_session=False))
 
             # Login succeeded without MFA
             secure_session.save_authenticated_session(mm)
@@ -248,11 +253,23 @@ class _AuthHandler(BaseHTTPRequestHandler):
             self.auth_state.awaiting_mfa = True
             self._send_json({"mfa_required": True})
 
-        except Exception as exc:
-            logger.error(f"Browser login failed: {exc}")
-            self._send_json({"error": str(exc)})
+        except LoginFailedException:
+            logger.error("Login failed for %s: invalid credentials", email)
+            self._send_json({"error": "Invalid email or password."})
+
+        except TransportServerError as exc:
+            code = getattr(exc, "code", "unknown")
+            logger.error("Monarch API HTTP %s during login: %s", code, exc)
+            self._send_json(
+                {"error": f"Monarch API error (HTTP {code}). Please try again later."}
+            )
+
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Unexpected error during login: %s", exc)
+            self._send_json({"error": f"Login failed: {exc}"})
 
     def _handle_mfa(self, data: dict):
+        """Verify the MFA code and complete authentication."""
         code = data.get("code", "").strip()
 
         if not code:
@@ -265,7 +282,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
         try:
             mm = MonarchMoney()
-            _run_async(
+            _run_sync(
                 mm.multi_factor_authenticate(
                     self.auth_state.email,
                     self.auth_state.password,
@@ -278,13 +295,25 @@ class _AuthHandler(BaseHTTPRequestHandler):
             logger.info("Browser authentication successful (with MFA)")
             self._send_json({"success": True})
 
-        except Exception as exc:
-            logger.error(f"Browser MFA failed: {exc}")
-            self._send_json({"error": str(exc)})
+        except LoginFailedException:
+            logger.error("MFA verification failed: invalid code")
+            self._send_json({"error": "Invalid authentication code. Please try again."})
+
+        except TransportServerError as exc:
+            code_ = getattr(exc, "code", "unknown")
+            logger.error("Monarch API HTTP %s during MFA: %s", code_, exc)
+            self._send_json(
+                {"error": f"Monarch API error (HTTP {code_}). Please try again later."}
+            )
+
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logger.error("Unexpected error during MFA: %s", exc)
+            self._send_json({"error": f"MFA verification failed: {exc}"})
 
     # ── Response helpers ──
 
     def _send_json(self, obj: dict):
+        """Send a JSON response with 200 status."""
         payload = json.dumps(obj).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -293,6 +322,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _send_html(self, html: str):
+        """Send an HTML response with 200 status."""
         payload = html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -300,7 +330,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def log_message(self, format, *args):
+    def log_message(self, format, *args):  # pylint: disable=redefined-builtin
         """Redirect default stderr logging to our logger."""
         logger.debug("Auth server: %s", format % args)
 
@@ -316,9 +346,9 @@ def _validate_token(token: str) -> bool | None:
     """
     try:
         mm = MonarchMoney(token=token)
-        _run_async(mm.get_accounts())
+        _run_sync(mm.get_accounts())
         return True
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         if is_auth_error(exc):
             logger.warning("Stored token is invalid or expired: %s", exc)
             return False
@@ -336,10 +366,8 @@ def trigger_auth_flow() -> None:
 
     Safe to call multiple times — only one auth server will run at a time.
     """
-    global _auth_server_active
-
     with _auth_lock:
-        if _auth_server_active:
+        if _auth_guard["active"]:
             logger.info("Auth server already running — skipping")
             return
 
@@ -363,7 +391,7 @@ def trigger_auth_flow() -> None:
             logger.info("Environment credentials found — skipping browser auth")
             return
 
-        _auth_server_active = True
+        _auth_guard["active"] = True
 
     # Spin up the auth server (outside the lock — no need to hold it)
     port = _find_free_port()
@@ -380,9 +408,8 @@ def trigger_auth_flow() -> None:
     server.timeout = 1  # unblock handle_request() every second to check state
 
     def _serve():
-        global _auth_server_active
         start = time.time()
-        logger.info(f"Auth server listening on http://127.0.0.1:{port}")
+        logger.info("Auth server listening on http://127.0.0.1:%d", port)
         try:
             while not state.completed:
                 server.handle_request()
@@ -396,16 +423,16 @@ def trigger_auth_flow() -> None:
             if state.completed:
                 logger.info("Auth server stopped — authentication complete")
         finally:
-            _auth_server_active = False
+            _auth_guard["active"] = False
 
     thread = threading.Thread(target=_serve, daemon=True, name="monarch-auth-server")
     thread.start()
 
     url = f"http://127.0.0.1:{port}"
-    logger.info(f"Opening browser for Monarch Money login: {url}")
+    logger.info("Opening browser for Monarch Money login: %s", url)
     try:
         webbrowser.open(url)
-    except Exception:
+    except Exception:  # pylint: disable=broad-exception-caught
         logger.warning(
             "Could not open browser automatically. "
             "Please visit %s to authenticate.",

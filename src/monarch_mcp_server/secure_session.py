@@ -2,11 +2,12 @@
 Secure session management for Monarch Money MCP Server using keyring.
 """
 
-import keyring
 import logging
 import os
 from typing import Optional
-from monarchmoney import MonarchMoney, MonarchMoneyEndpoints, LoginFailedException
+
+import keyring
+from monarchmoney import MonarchMoney, LoginFailedException
 from gql.transport.exceptions import TransportServerError
 
 logger = logging.getLogger(__name__)
@@ -23,13 +24,13 @@ class SecureMonarchSession:
         """Save the authentication token to the system keyring."""
         try:
             keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, token)
-            logger.info("✅ Token saved securely to keyring")
+            logger.info("Token saved securely to keyring")
 
             # Clean up any old insecure files
             self._cleanup_old_session_files()
 
         except Exception as e:
-            logger.error(f"❌ Failed to save token to keyring: {e}")
+            logger.error("Failed to save token to keyring: %s", e)
             raise
 
     def load_token(self) -> Optional[str]:
@@ -37,28 +38,27 @@ class SecureMonarchSession:
         try:
             token = keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
             if token:
-                logger.info("✅ Token loaded from keyring")
+                logger.info("Token loaded from keyring")
                 return token
-            else:
-                logger.info("🔍 No token found in keyring")
-                return None
-        except Exception as e:
-            logger.error(f"❌ Failed to load token from keyring: {e}")
+            logger.info("No token found in keyring")
+            return None
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to load token from keyring: %s", e)
             return None
 
     def delete_token(self) -> None:
         """Delete the authentication token from the system keyring."""
         try:
             keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
-            logger.info("🗑️ Token deleted from keyring")
+            logger.info("Token deleted from keyring")
 
             # Also clean up any old insecure files
             self._cleanup_old_session_files()
 
         except keyring.errors.PasswordDeleteError:
-            logger.info("🔍 No token found in keyring to delete")
-        except Exception as e:
-            logger.error(f"❌ Failed to delete token from keyring: {e}")
+            logger.info("No token found in keyring to delete")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to delete token from keyring: %s", e)
 
     def get_authenticated_client(self) -> Optional[MonarchMoney]:
         """Get an authenticated MonarchMoney client."""
@@ -68,10 +68,10 @@ class SecureMonarchSession:
 
         try:
             client = MonarchMoney(token=token)
-            logger.info("✅ MonarchMoney client created with stored token")
+            logger.info("MonarchMoney client created with stored token")
             return client
-        except Exception as e:
-            logger.error(f"❌ Failed to create MonarchMoney client: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to create MonarchMoney client: %s", e)
             return None
 
     def save_authenticated_session(self, mm: MonarchMoney) -> None:
@@ -79,7 +79,7 @@ class SecureMonarchSession:
         if mm.token:
             self.save_token(mm.token)
         else:
-            logger.warning("⚠️  MonarchMoney instance has no token to save")
+            logger.warning("MonarchMoney instance has no token to save")
 
     def _cleanup_old_session_files(self) -> None:
         """Clean up old insecure session files."""
@@ -94,12 +94,12 @@ class SecureMonarchSession:
                 if os.path.exists(path):
                     if os.path.isfile(path):
                         os.remove(path)
-                        logger.info(f"🗑️ Cleaned up old insecure session file: {path}")
+                        logger.info("Cleaned up old insecure session file: %s", path)
                     elif os.path.isdir(path) and not os.listdir(path):
                         os.rmdir(path)
-                        logger.info(f"🗑️ Cleaned up empty session directory: {path}")
-            except Exception as e:
-                logger.warning(f"⚠️  Could not clean up {path}: {e}")
+                        logger.info("Cleaned up empty session directory: %s", path)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.warning("Could not clean up %s: %s", path, e)
 
 
 def is_auth_error(exc: Exception) -> bool:

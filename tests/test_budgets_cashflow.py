@@ -1,4 +1,5 @@
 """Phase 4: Budget and cashflow tool tests (12 tests)."""
+# pylint: disable=missing-function-docstring
 
 import json
 

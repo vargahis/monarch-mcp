@@ -1,4 +1,5 @@
 """Phase 1: Authentication tool tests (3 tests)."""
+# pylint: disable=missing-function-docstring
 
 from monarch_mcp_server.server import (
     check_auth_status,

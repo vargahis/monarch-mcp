@@ -1,4 +1,5 @@
 """Phase 7: Transaction tagging tests (5 tests)."""
+# pylint: disable=missing-function-docstring
 
 import json
 

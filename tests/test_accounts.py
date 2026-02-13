@@ -1,4 +1,5 @@
 """Phase 2: Account tool tests (5 tests)."""
+# pylint: disable=missing-function-docstring
 
 import json
 

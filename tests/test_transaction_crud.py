@@ -1,4 +1,5 @@
 """Phase 6: Transaction CRUD tests (25 tests)."""
+# pylint: disable=missing-function-docstring
 
 import json
 

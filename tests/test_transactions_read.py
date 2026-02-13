@@ -1,4 +1,5 @@
 """Phase 3: Transaction read / query tests (14 tests)."""
+# pylint: disable=missing-function-docstring
 
 import json
 
@@ -104,7 +105,7 @@ def test_combined_account_and_date(mock_monarch_client):
 
 
 # ---------------------------------------------------------------------------
-# 3.5 – only start_date → error JSON
+# 3.5 – only start_date -> error JSON
 # ---------------------------------------------------------------------------
 
 
@@ -114,7 +115,7 @@ def test_only_start_date_error():
 
 
 # ---------------------------------------------------------------------------
-# 3.6 – only end_date → error JSON
+# 3.6 – only end_date -> error JSON
 # ---------------------------------------------------------------------------
 
 
@@ -142,7 +143,7 @@ def test_pagination_no_overlap(mock_monarch_client):
 
 
 # ---------------------------------------------------------------------------
-# 3.8 – large offset → empty list
+# 3.8 – large offset -> empty list
 # ---------------------------------------------------------------------------
 
 
@@ -215,7 +216,7 @@ def test_very_large_limit(mock_monarch_client):
 
 
 # ---------------------------------------------------------------------------
-# 3.13 – invalid date format → API error passthrough
+# 3.13 – invalid date format -> API error passthrough
 # ---------------------------------------------------------------------------
 
 
@@ -229,7 +230,7 @@ def test_invalid_date_format(mock_monarch_client):
 
 
 # ---------------------------------------------------------------------------
-# 3.14 – future dates → empty list
+# 3.14 – future dates -> empty list
 # ---------------------------------------------------------------------------
 
 
