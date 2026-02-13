@@ -423,7 +423,8 @@ def trigger_auth_flow() -> None:
             if state.completed:
                 logger.info("Auth server stopped — authentication complete")
         finally:
-            _auth_guard["active"] = False
+            with _auth_lock:
+                _auth_guard["active"] = False
 
     thread = threading.Thread(target=_serve, daemon=True, name="monarch-auth-server")
     thread.start()
