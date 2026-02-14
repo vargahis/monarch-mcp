@@ -7,14 +7,13 @@ name = "monarch-mcp-server"
 dynamic = ["version"]
 description = "Model Context Protocol (MCP) server for Monarch Money personal finance platform"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "vargahis" }
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
 ]
