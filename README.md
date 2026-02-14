@@ -12,7 +12,49 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 2. In Claude Desktop, click **"Install Extension..."** and select the downloaded file
 3. Restart Claude Desktop — done!
 
-### Option B: From Source
+### Option B: Install from TestPyPI
+
+1. **Install the package**:
+   ```bash
+   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ monarch-mcp-server
+   ```
+
+2. **Configure Claude Desktop**:
+   Add this to your Claude Desktop configuration file:
+
+   **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+   ```json
+   {
+     "mcpServers": {
+       "Monarch Money": {
+         "command": "python3",
+         "args": ["-m", "monarch_mcp_server"]
+       }
+     }
+   }
+   ```
+
+   **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+   ```json
+   {
+     "mcpServers": {
+       "Monarch Money": {
+         "command": "py",
+         "args": ["-m", "monarch_mcp_server"]
+       }
+     }
+   }
+   ```
+
+   > **Note**: The `"command"` value must be whatever launches Python on your system.
+   > Common values: `python3` (macOS/Linux), `py` (Windows), or `python`.
+   > Run `python3 --version` (or `py --version`) in a terminal to confirm which one works.
+
+3. **Restart Claude Desktop**
+
+### Option C: From Source
 
 #### 1. Installation
 
@@ -233,6 +275,7 @@ If you encounter authentication errors, the server will automatically open a bro
 monarch-mcp-server/
 ├── src/monarch_mcp_server/
 │   ├── __init__.py
+│   ├── __main__.py        # python -m monarch_mcp_server entry point
 │   ├── server.py          # Main server implementation
 │   ├── auth_server.py     # Browser-based authentication server
 │   └── secure_session.py  # Keyring-based token storage
