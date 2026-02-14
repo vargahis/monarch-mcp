@@ -1,0 +1,45 @@
+name: Build and Release MCP Bundle
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  build-mcpb:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install mcpb CLI
+        run: npm install -g @anthropic-ai/mcpb
+
+      - name: Inject version from git tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+      - name: Validate manifest
+        run: mcpb validate .
+
+      - name: Pack bundle
+        run: mcpb pack . monarch-money-mcp-${{ github.ref_name }}.mcpb
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b  # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: monarch-money-mcp-${{ github.ref_name }}.mcpb
+          generate_release_notes: true

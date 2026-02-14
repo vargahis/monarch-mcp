@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=80", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "monarch-mcp-server"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Model Context Protocol (MCP) server for Monarch Money personal finance platform"
 readme = "README.md"
 license = { text = "MIT" }
@@ -48,6 +48,9 @@ monarch-mcp-server = "monarch_mcp_server.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0"
 
 [tool.black]
 line-length = 88

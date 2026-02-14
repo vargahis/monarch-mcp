@@ -61,6 +61,9 @@ venv.bak/
 *.swo
 *~
 
+# MCP Bundles
+*.mcpb
+
 # OS files
 .DS_Store
 .DS_Store?
@@ -69,12 +72,12 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
-nul
 
 # Credentials and Session Files
 *.pickle
 *.session
 *.json
+!manifest.json
 .env*
 !.env.example
 auth_tokens/
@@ -94,3 +97,6 @@ logs/
 tmp/
 temp/
 .tmp/
+
+# Windows null device artifact
+nul

@@ -1,0 +1,74 @@
+{
+  "manifest_version": "0.4",
+  "name": "monarch-money-mcp",
+  "display_name": "Monarch Money MCP Server",
+  "version": "0.0.0",
+  "description": "MCP server for Monarch Money personal finance — accounts, transactions, budgets, cashflow, investments, and more.",
+  "author": {
+    "name": "vargahis",
+    "url": "https://github.com/vargahis/monarch-mcp-server"
+  },
+  "server": {
+    "type": "uv",
+    "entry_point": "src/monarch_mcp_server/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "mcp",
+        "run",
+        "${__dirname}/src/monarch_mcp_server/server.py"
+      ]
+    }
+  },
+  "tools": [
+    { "name": "setup_authentication", "description": "Get instructions for setting up secure authentication" },
+    { "name": "check_auth_status", "description": "Check if already authenticated with Monarch Money" },
+    { "name": "debug_session_loading", "description": "Debug keyring session loading issues" },
+    { "name": "get_accounts", "description": "Get all financial accounts" },
+    { "name": "get_transactions", "description": "Get transactions with filters" },
+    { "name": "get_budgets", "description": "Get budget information" },
+    { "name": "get_cashflow", "description": "Get cashflow analysis" },
+    { "name": "get_account_holdings", "description": "Get investment holdings for a specific account" },
+    { "name": "create_transaction", "description": "Create a new transaction" },
+    { "name": "update_transaction", "description": "Update an existing transaction" },
+    { "name": "delete_transaction", "description": "Delete a transaction" },
+    { "name": "refresh_accounts", "description": "Request account data refresh from institutions" },
+    { "name": "get_transaction_tags", "description": "Get all transaction tags" },
+    { "name": "create_transaction_tag", "description": "Create a new transaction tag" },
+    { "name": "delete_transaction_tag", "description": "Delete a transaction tag" },
+    { "name": "set_transaction_tags", "description": "Set tags on a transaction" },
+    { "name": "get_transaction_categories", "description": "Get all transaction categories" },
+    { "name": "get_transaction_category_groups", "description": "Get all transaction category groups" },
+    { "name": "get_transaction_details", "description": "Get detailed information about a specific transaction" },
+    { "name": "get_recurring_transactions", "description": "Get recurring transactions" },
+    { "name": "get_transactions_summary", "description": "Get aggregate transaction summary" },
+    { "name": "get_subscription_details", "description": "Get Monarch Money subscription status and details" },
+    { "name": "get_institutions", "description": "Get all connected financial institutions" },
+    { "name": "get_cashflow_summary", "description": "Get cashflow summary with income, expenses, savings" },
+    { "name": "set_budget_amount", "description": "Set or update a budget amount for a category" },
+    { "name": "get_transaction_splits", "description": "Get split information for a transaction" },
+    { "name": "update_transaction_splits", "description": "Create, modify, or delete splits for a transaction" },
+    { "name": "create_transaction_category", "description": "Create a new transaction category" },
+    { "name": "delete_transaction_category", "description": "Delete a transaction category" },
+    { "name": "create_manual_account", "description": "Create a new manual account" },
+    { "name": "update_account", "description": "Update an existing account" },
+    { "name": "get_account_history", "description": "Get historical balance snapshots for an account" },
+    { "name": "get_recent_account_balances", "description": "Get daily balance for all accounts" },
+    { "name": "get_account_snapshots_by_type", "description": "Get net value snapshots grouped by account type" },
+    { "name": "get_aggregate_snapshots", "description": "Get daily aggregate net value of all accounts" },
+    { "name": "get_account_type_options", "description": "Get available account types and sub-types" },
+    { "name": "get_credit_history", "description": "Get credit score history and related details" },
+    { "name": "delete_account", "description": "Delete an account from Monarch Money" }
+  ],
+  "keywords": ["finance", "monarch-money", "budgets", "transactions", "accounts"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.12"
+    }
+  }
+}

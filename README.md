@@ -6,7 +6,15 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 
 ## 🚀 Quick Start
 
-### 1. Installation
+### Option A: One-click Install (Claude Desktop)
+
+1. Download the latest `.mcpb` file from [Releases](https://github.com/vargahis/monarch-mcp-server/releases)
+2. In Claude Desktop, click **"Install Extension..."** and select the downloaded file
+3. Restart Claude Desktop — done!
+
+### Option B: From Source
+
+#### 1. Installation
 
 1. **Clone this repository**:
    ```bash
