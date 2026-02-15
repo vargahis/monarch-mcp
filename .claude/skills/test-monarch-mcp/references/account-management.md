@@ -1,5 +1,7 @@
 # Phase 11 — Account Management (10 tests)
 
+> **Read-only mode:** Run tests 11.1, 11.6-alt, 11.7-11.10. Skip 11.2-11.6 (create/update/delete account requires write mode).
+
 ## 11.1 — get_account_type_options: returns valid types
 Call `get_account_type_options()`.
 **Expected:** JSON with account type options. Record a valid `account_type` and `account_sub_type` for later use.
@@ -23,6 +25,13 @@ Call `update_account(account_id={created_account_id}, include_in_net_worth=True)
 ## 11.6 — get_account_history: for created account
 Call `get_account_history(account_id={created_account_id})`.
 **Expected:** JSON response (may have limited history for a brand new account).
+
+## 11.6-alt — get_account_history: for checking account (read-only variant)
+
+> **This test replaces 11.6 in read-only mode**, since no account is created.
+
+Call `get_account_history(account_id={checking_account_id})`.
+**Expected:** JSON with historical balance snapshots for a real account.
 
 ## 11.7 — get_recent_account_balances: no date
 Call `get_recent_account_balances()`.
