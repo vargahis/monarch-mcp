@@ -17,10 +17,20 @@
         "run",
         "--directory",
         "${__dirname}",
-        "mcp",
+        "fastmcp",
         "run",
-        "${__dirname}/src/monarch_mcp_server/server.py"
+        "${__dirname}/src/monarch_mcp_server/server.py",
+        "--",
+        "--enable-write=${user_config.enable_write}"
       ]
+    }
+  },
+  "user_config": {
+    "enable_write": {
+      "type": "boolean",
+      "title": "Enable write tools",
+      "description": "Allow creating, updating, and deleting data. Read-only by default.",
+      "default": false
     }
   },
   "tools": [

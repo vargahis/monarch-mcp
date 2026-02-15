@@ -1,6 +1,7 @@
 """Monarch Money MCP Server - Main server implementation."""
 # pylint: disable=too-many-lines
 
+import argparse
 import functools
 import json
 import logging
@@ -12,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from gql import gql
 from gql.transport.exceptions import TransportServerError, TransportQueryError, TransportError
 from monarchmoney import MonarchMoney, LoginFailedException
@@ -26,6 +27,24 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
+
+# ── Read-only mode (write tools disabled by default) ─────────────────
+_arg_parser = argparse.ArgumentParser(
+    description="Monarch Money MCP Server — read-only by default; "
+                "pass --enable-write to expose write tools.",
+)
+_arg_parser.add_argument(
+    "--enable-write",
+    nargs="?",
+    const="true",
+    default="false",
+    type=str,
+    help="Enable write tools (create, update, delete). "
+         "Accepts: --enable-write, --enable-write=true, --enable-write=false. "
+         "Default: false (read-only mode).",
+)
+_PARSED_ARGS, _ = _arg_parser.parse_known_args()
+_WRITE_ENABLED = _PARSED_ARGS.enable_write.lower() in ("true", "1")
 
 # Initialize FastMCP server
 mcp = FastMCP("Monarch Money MCP Server")
@@ -445,7 +464,7 @@ def get_account_holdings(account_id: str) -> str:
     return json.dumps(holdings, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction")
 def create_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_id: str,
@@ -486,7 +505,7 @@ def create_transaction(  # pylint: disable=too-many-arguments,too-many-positiona
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating transaction")
 def update_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     transaction_id: str,
@@ -543,7 +562,7 @@ def update_transaction(  # pylint: disable=too-many-arguments,too-many-positiona
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting transaction")
 def delete_transaction(transaction_id: str) -> str:
     """
@@ -610,7 +629,7 @@ def get_transaction_tags() -> str:
     return json.dumps(tag_list, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction tag")
 def create_transaction_tag(name: str, color: str) -> str:
     """
@@ -642,7 +661,7 @@ def create_transaction_tag(name: str, color: str) -> str:
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting transaction tag")
 def delete_transaction_tag(tag_id: str) -> str:
     """
@@ -675,7 +694,7 @@ def delete_transaction_tag(tag_id: str) -> str:
     return json.dumps({"deleted": True, "tag_id": tag_id}, indent=2)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("setting transaction tags")
 def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
     """
@@ -866,7 +885,7 @@ def get_cashflow_summary(
 # ── Phase 3: Mutation tools ──────────────────────────────────────────
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("setting budget amount")
 def set_budget_amount(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     amount: float,
@@ -932,7 +951,7 @@ def get_transaction_splits(transaction_id: str) -> str:
     return json.dumps(splits, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating transaction splits")
 def update_transaction_splits(
     transaction_id: str,
@@ -957,7 +976,7 @@ def update_transaction_splits(
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction category")
 def create_transaction_category(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: str,
@@ -999,7 +1018,7 @@ def create_transaction_category(  # pylint: disable=too-many-arguments,too-many-
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting transaction category")
 def delete_transaction_category(category_id: str) -> str:
     """
@@ -1022,7 +1041,7 @@ def delete_transaction_category(category_id: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating manual account")
 def create_manual_account(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_name: str,
@@ -1057,7 +1076,7 @@ def create_manual_account(  # pylint: disable=too-many-arguments,too-many-positi
     return json.dumps(result, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating account")
 def update_account(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_id: str,
@@ -1237,7 +1256,7 @@ def get_credit_history() -> str:
     return json.dumps(history, indent=2, default=str)
 
 
-@mcp.tool()
+@mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting account")
 def delete_account(account_id: str) -> str:
     """
@@ -1262,7 +1281,8 @@ def delete_account(account_id: str) -> str:
 
 def main():
     """Main entry point for the server."""
-    logger.info("Starting Monarch Money MCP Server...")
+    mode = "read-write" if _WRITE_ENABLED else "read-only"
+    logger.info("Starting Monarch Money MCP Server (%s mode)...", mode)
 
     # Auto-trigger browser authentication if no credentials are available
     trigger_auth_flow()

@@ -1,5 +1,7 @@
 # Phase 4 — Budgets, Cashflow & Budget Amounts (15 tests)
 
+> **Read-only mode:** Run tests 4.1-4.12 only. Skip 4.13-4.15 (set_budget_amount requires write mode).
+
 ---
 
 ## Test 4.1 — get_budgets: Both Dates (Jan 2025)

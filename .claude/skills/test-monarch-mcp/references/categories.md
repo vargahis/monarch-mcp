@@ -1,5 +1,7 @@
 # Phase 8 — Categories (10 tests)
 
+> **Read-only mode:** Run tests 8.1-8.3 only. Skip 8.4-8.10 (create/delete category requires write mode).
+
 ## 8.1 — get_transaction_categories: returns categories
 Call `get_transaction_categories()`.
 **Expected:** JSON with a `categories` key containing a non-empty list. Each category has `id`, `name`, and `group`.

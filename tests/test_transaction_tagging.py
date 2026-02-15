@@ -3,21 +3,23 @@
 
 import json
 
-from monarch_mcp_server.server import set_transaction_tags
 
-
-def test_apply_single_tag(mock_monarch_client):
+async def test_apply_single_tag(mcp_write_client, mock_monarch_client):
     mock_monarch_client.set_transaction_tags.return_value = {
         "setTransactionTags": {"transaction": {"tags": [{"id": "tag-1", "name": "Vacation"}]}}
     }
 
-    result = json.loads(set_transaction_tags(transaction_id="txn-1", tag_ids=["tag-1"]))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "set_transaction_tags", {"transaction_id": "txn-1", "tag_ids": ["tag-1"]}
+        )).content[0].text
+    )
 
     assert "setTransactionTags" in result
     mock_monarch_client.set_transaction_tags.assert_called_once_with("txn-1", ["tag-1"])
 
 
-def test_apply_multiple_tags(mock_monarch_client):
+async def test_apply_multiple_tags(mcp_write_client, mock_monarch_client):
     mock_monarch_client.set_transaction_tags.return_value = {
         "setTransactionTags": {
             "transaction": {
@@ -30,7 +32,10 @@ def test_apply_multiple_tags(mock_monarch_client):
     }
 
     result = json.loads(
-        set_transaction_tags(transaction_id="txn-1", tag_ids=["tag-1", "tag-2"])
+        (await mcp_write_client.call_tool(
+            "set_transaction_tags",
+            {"transaction_id": "txn-1", "tag_ids": ["tag-1", "tag-2"]},
+        )).content[0].text
     )
 
     tags = result["setTransactionTags"]["transaction"]["tags"]
@@ -40,35 +45,43 @@ def test_apply_multiple_tags(mock_monarch_client):
     )
 
 
-def test_remove_all_tags(mock_monarch_client):
+async def test_remove_all_tags(mcp_write_client, mock_monarch_client):
     mock_monarch_client.set_transaction_tags.return_value = {
         "setTransactionTags": {"transaction": {"tags": []}}
     }
 
-    result = json.loads(set_transaction_tags(transaction_id="txn-1", tag_ids=[]))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "set_transaction_tags", {"transaction_id": "txn-1", "tag_ids": []}
+        )).content[0].text
+    )
 
     tags = result["setTransactionTags"]["transaction"]["tags"]
     assert tags == []
     mock_monarch_client.set_transaction_tags.assert_called_once_with("txn-1", [])
 
 
-def test_invalid_transaction_id(mock_monarch_client):
+async def test_invalid_transaction_id(mcp_write_client, mock_monarch_client):
     mock_monarch_client.set_transaction_tags.side_effect = Exception(
         "Transaction not found"
     )
 
-    result = set_transaction_tags(transaction_id="bad-id", tag_ids=["tag-1"])
+    result = (await mcp_write_client.call_tool(
+        "set_transaction_tags", {"transaction_id": "bad-id", "tag_ids": ["tag-1"]}
+    )).content[0].text
 
     assert "Error" in result
     assert "Transaction not found" in result
 
 
-def test_nonexistent_tag_id(mock_monarch_client):
+async def test_nonexistent_tag_id(mcp_write_client, mock_monarch_client):
     mock_monarch_client.set_transaction_tags.side_effect = Exception(
         "Tag not found"
     )
 
-    result = set_transaction_tags(transaction_id="txn-1", tag_ids=["bad-tag"])
+    result = (await mcp_write_client.call_tool(
+        "set_transaction_tags", {"transaction_id": "txn-1", "tag_ids": ["bad-tag"]}
+    )).content[0].text
 
     assert "Error" in result
     assert "Tag not found" in result

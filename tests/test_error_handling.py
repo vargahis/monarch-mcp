@@ -7,7 +7,7 @@ import pytest
 from gql.transport.exceptions import TransportServerError, TransportQueryError, TransportError
 from monarchmoney import LoginFailedException
 
-from monarch_mcp_server.server import run_async, get_accounts
+from monarch_mcp_server.server import run_async
 from monarch_mcp_server.auth_server import _AuthHandler, _AuthState
 
 
@@ -97,61 +97,61 @@ def test_run_async_transport_query_error_propagates():
 
 
 # ===================================================================
-# MCP tool decorator — exception type discrimination
+# MCP tool decorator — exception type discrimination (via Client)
 # ===================================================================
 
 
-def test_tool_runtime_error(mock_monarch_client):
+async def test_tool_runtime_error(mcp_client, mock_monarch_client):
     """RuntimeError (e.g., auth recovery) returns error string."""
     mock_monarch_client.get_accounts.side_effect = RuntimeError("session expired")
 
-    result = get_accounts()
+    result = (await mcp_client.call_tool("get_accounts")).content[0].text
 
     assert "Error" in result
     assert "session expired" in result
 
 
-def test_tool_transport_server_error(mock_monarch_client):
+async def test_tool_transport_server_error(mcp_client, mock_monarch_client):
     """TransportServerError includes HTTP status code in error."""
     mock_monarch_client.get_accounts.side_effect = TransportServerError(
         "Internal Server Error", code=500,
     )
 
-    result = get_accounts()
+    result = (await mcp_client.call_tool("get_accounts")).content[0].text
 
     assert "Error" in result
     assert "500" in result
 
 
-def test_tool_transport_query_error(mock_monarch_client):
+async def test_tool_transport_query_error(mcp_client, mock_monarch_client):
     """TransportQueryError returns query-specific error."""
     mock_monarch_client.get_accounts.side_effect = TransportQueryError(
         "Validation error",
     )
 
-    result = get_accounts()
+    result = (await mcp_client.call_tool("get_accounts")).content[0].text
 
     assert "Error" in result
     assert "query" in result.lower()
 
 
-def test_tool_transport_error(mock_monarch_client):
+async def test_tool_transport_error(mcp_client, mock_monarch_client):
     """TransportError returns connection-specific error."""
     mock_monarch_client.get_accounts.side_effect = TransportError(
         "Connection refused",
     )
 
-    result = get_accounts()
+    result = (await mcp_client.call_tool("get_accounts")).content[0].text
 
     assert "Error" in result
     assert "connection" in result.lower()
 
 
-def test_tool_unexpected_error(mock_monarch_client):
+async def test_tool_unexpected_error(mcp_client, mock_monarch_client):
     """Generic Exception returns catch-all error."""
     mock_monarch_client.get_accounts.side_effect = ValueError("weird error")
 
-    result = get_accounts()
+    result = (await mcp_client.call_tool("get_accounts")).content[0].text
 
     assert "Error" in result
     assert "weird error" in result

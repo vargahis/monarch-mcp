@@ -1,5 +1,7 @@
 # Phase 9 — Transaction Details & Splits (8 tests)
 
+> **Read-only mode:** Run tests 9.1-9.5 only. Skip 9.6-9.8 (update_transaction_splits and create_transaction require write mode).
+
 ## 9.1 — get_transaction_details: happy path
 Call `get_transaction_details(transaction_id={test_transaction_id})`.
 **Expected:** JSON with detailed transaction info including `id`, `date`, `amount`, `merchant`, `category`.

@@ -1,5 +1,13 @@
 # CLAUDE.md — Monarch MCP Server
 
+## Branching Policy
+
+**Never commit directly to `main`** unless the user explicitly asks for it.
+
+- If on `main`, create a new feature branch before committing (e.g., `feature/<topic>`), or switch to an existing branch.
+- If unsure which branch to use, ask the user.
+- This applies to all commits — fixes, features, refactors, docs, etc.
+
 ## Documentation Maintenance
 
 Keep `README.md` up to date whenever:

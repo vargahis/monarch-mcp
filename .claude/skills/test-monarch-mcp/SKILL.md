@@ -1,13 +1,22 @@
 ---
 name: test-monarch-mcp
-description: Systematically test all 39 Monarch Money MCP tools — happy paths, edge cases, and error handling. Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates).
+description: Systematically test Monarch Money MCP tools in read-only mode (26 tools, 63 tests) or write-enabled mode (all 39 tools, 127 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
 user_invocable: true
 ---
 
 # Test Monarch MCP Skill
 
 You are executing a comprehensive test suite for the Monarch Money MCP server.
-Run all 127 tests across 12 phases, track results, and clean up after yourself.
+Run tests across 12 phases, track results, and clean up after yourself.
+
+---
+
+## Mode Support
+
+This test suite supports two modes, auto-detected at startup:
+
+- **Read-only mode** (default): Tests 26 read-only tools (63 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
+- **Write-enabled mode** (`--enable-write`): Tests all 39 tools (127 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
 
 ---
 
@@ -31,6 +40,7 @@ The state file is `mcp-test-state.json` in the project root (`C:\dev\monarch-mcp
 ```json
 {
   "status": "in_progress | completed | cleanup_needed",
+  "mode": "read-only | read-write",
   "started_at": "<ISO timestamp>",
   "last_updated": "<ISO timestamp>",
   "last_completed_phase": 0,
@@ -65,6 +75,9 @@ The state file is `mcp-test-state.json` in the project root (`C:\dev\monarch-mcp
 }
 ```
 
+In **read-only mode**, `summary.total` is `63` and `original_values` is omitted (no mutations will happen).
+In **write-enabled mode**, `summary.total` is `127`.
+
 ### Update Cadence
 
 - **Write** the state file after Phase 0 (discovery IDs are now logged).
@@ -83,13 +96,39 @@ The state file is `mcp-test-state.json` in the project root (`C:\dev\monarch-mcp
 
 ---
 
-## Pre-flight Warning
+## Pre-flight: Auto-detect Mode & Confirm
 
-Before starting any test work (including Phase 0), display this warning and **STOP and wait for explicit user approval**:
+Before starting any test work (including Phase 0), detect the server mode and get user confirmation.
+
+### Mode Detection (Phase 0 preamble)
+
+Check which MCP tools are available. If write tools like `create_transaction`, `create_transaction_tag`, `delete_transaction`, etc. are available, the server is in **read-write mode**. If they are absent, the server is in **read-only mode**.
+
+### User Confirmation
+
+Based on the detected mode, display the appropriate message and **STOP and wait for explicit user approval**:
+
+#### If read-only mode detected:
 
 ---
 
-**WARNING: This test suite operates on your live Monarch Money account.**
+**Server is running in read-only mode (26 tools).**
+
+I'll run 63 read-only tests and skip 64 write tests. No data will be created, modified, or deleted on your Monarch account.
+
+To test all 127 tools, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`, then restart.
+
+**Proceed with read-only tests?**
+
+---
+
+#### If read-write mode detected:
+
+---
+
+**WARNING: Server is running in read-write mode (all 39 tools).**
+
+I'll run all 127 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
 
 - It **creates and deletes** transactions, tags, categories, and accounts.
 - It **temporarily modifies** an existing transaction (then reverts it).
@@ -97,13 +136,15 @@ Before starting any test work (including Phase 0), display this warning and **ST
 - All test-created data is prefixed with `MCP-Test-` for easy manual identification.
 - If the session is interrupted, you can **resume where you left off** by invoking this skill again — it will detect the saved progress and offer to continue.
 
+To test read-only mode only, disable `monarch-money` and enable `monarch-money-read-only` in `.mcp.json`, then restart.
+
 **Do you want to continue?**
 
 ---
 
 Do NOT proceed until the user explicitly confirms. If the user declines, stop immediately.
 
-This warning applies to **fresh runs only**. When resuming an in-progress run or performing cleanup-only, skip this warning (the user already accepted the risk).
+This confirmation applies to **fresh runs only**. When resuming an in-progress run or performing cleanup-only, skip this confirmation (the user already accepted the risk).
 
 ---
 
@@ -118,15 +159,16 @@ This phase runs first. No reference file — execute inline.
 2. Call `get_transactions(limit=5)`.
    - Extract `test_transaction_id`: the first transaction's ID.
    - Extract `valid_category_id`: the first transaction's category ID.
-   - Record **original values** for the test transaction: `merchant` (or `merchant_name`), `notes`, `amount`, `date`, `category_id`, `hide_from_reports`, `needs_review`.
+   - **Write mode only:** Record **original values** for the test transaction: `merchant` (or `merchant_name`), `notes`, `amount`, `date`, `category_id`, `hide_from_reports`, `needs_review`.
 
-3. Initialize `created_resources = { transactions: [], tags: [] }`.
+3. Initialize `created_resources = { transactions: [], tags: [], categories: [], accounts: [] }`.
 
-4. Write the state file with `status: "in_progress"`, `last_completed_phase: 0`.
+4. Record detected `mode` in state file. Write the state file with `status: "in_progress"`, `last_completed_phase: 0`.
 
 5. Print discovery results:
    ```
    === Phase 0: Discovery ===
+   Mode:                {read-only | read-write}
    Checking account:    {id} ({name})
    Investment account:  {id} ({name}) or "None found"
    Test transaction:    {id} ({merchant}, ${amount})
@@ -169,6 +211,8 @@ After completing all tests, update state file: `last_completed_phase: 3`, add re
 
 Load and follow: `references/budgets-and-cashflow.md`
 
+**Read-only mode:** Run tests 4.1-4.12 only (12 tests). Skip 4.13-4.15 (set_budget_amount requires write mode).
+
 After completing all tests, update state file: `last_completed_phase: 4`, add results.
 
 ---
@@ -176,6 +220,8 @@ After completing all tests, update state file: `last_completed_phase: 4`, add re
 ## Phase 5 — Tag CRUD (13 tests)
 
 Load and follow: `references/tag-crud.md`
+
+**Read-only mode:** Run test 5.1 only (1 test). Skip 5.2-5.13 (create/delete tag requires write mode).
 
 **Important:** Track every created tag ID in `created_resources.tags` immediately after creation.
 
@@ -186,6 +232,8 @@ After completing all tests, update state file: `last_completed_phase: 5`, add re
 ## Phase 6 — Transaction CRUD (25 tests)
 
 Load and follow: `references/transaction-crud.md`
+
+**Read-only mode:** Skip entire phase (0 tests). All tests require write tools.
 
 Uses `checking_account_id`, `valid_category_id`, and `test_transaction_id` from discovery.
 
@@ -199,6 +247,8 @@ After completing all tests, update state file: `last_completed_phase: 6`, add re
 
 Load and follow: `references/transaction-tagging.md`
 
+**Read-only mode:** Skip entire phase (0 tests). All tests require write tools.
+
 This phase creates its own temporary tag(s) for testing. Track them in `created_resources.tags`.
 
 After completing all tests, update state file: `last_completed_phase: 7`, add results.
@@ -208,6 +258,8 @@ After completing all tests, update state file: `last_completed_phase: 7`, add re
 ## Phase 8 — Categories (10 tests)
 
 Load and follow: `references/categories.md`
+
+**Read-only mode:** Run tests 8.1-8.3 only (3 tests). Skip 8.4-8.10 (create/delete category requires write mode).
 
 Tests `get_transaction_categories`, `get_transaction_category_groups`, `create_transaction_category`, and `delete_transaction_category`.
 
@@ -220,6 +272,8 @@ After completing all tests, update state file: `last_completed_phase: 8`, add re
 ## Phase 9 — Transaction Details & Splits (8 tests)
 
 Load and follow: `references/transaction-details-and-splits.md`
+
+**Read-only mode:** Run tests 9.1-9.5 only (5 tests). Skip 9.6-9.8 (update_transaction_splits and create_transaction require write mode).
 
 Tests `get_transaction_details`, `get_transaction_splits`, and `update_transaction_splits`.
 
@@ -241,6 +295,8 @@ After completing all tests, update state file: `last_completed_phase: 10`, add r
 
 Load and follow: `references/account-management.md`
 
+**Read-only mode:** Run tests 11.1, 11.6-alt, 11.7-11.10 (6 tests). Skip 11.2-11.6 (create/update/delete account requires write mode). Test 11.6-alt uses `{checking_account_id}` instead of `{created_account_id}`.
+
 Tests `create_manual_account`, `update_account`, `delete_account`, `get_account_type_options`, `get_account_history`, `get_recent_account_balances`, `get_account_snapshots_by_type`, `get_aggregate_snapshots`.
 
 **Important:** Track every created account ID in `created_resources.accounts` immediately after creation.
@@ -261,9 +317,15 @@ After completing all tests, update state file: `last_completed_phase: 12`, add r
 
 ## Cleanup Phase
 
+### Read-only mode
+
+Skip cleanup entirely — no resources were created and no mutations were made. Set `status: "completed"` in state file, then delete `mcp-test-state.json`.
+
+### Write mode
+
 **This phase ALWAYS runs**, even if earlier phases failed or were skipped.
 
-### Step 1: Revert Test Transaction Mutations
+#### Step 1: Revert Test Transaction Mutations
 
 Using `test_transaction_id` and `original_values` from state file:
 
@@ -280,7 +342,7 @@ update_transaction(
 )
 ```
 
-### Step 2: Remove Tags from Test Transaction
+#### Step 2: Remove Tags from Test Transaction
 
 ```
 set_transaction_tags(
@@ -289,7 +351,7 @@ set_transaction_tags(
 )
 ```
 
-### Step 3: Delete Created Transactions
+#### Step 3: Delete Created Transactions
 
 For each ID in `created_resources.transactions`:
 ```
@@ -297,7 +359,7 @@ delete_transaction(transaction_id = {id})
 ```
 Log success/failure for each. Continue on failure.
 
-### Step 4: Delete Created Tags
+#### Step 4: Delete Created Tags
 
 For each ID in `created_resources.tags`:
 ```
@@ -305,7 +367,7 @@ delete_transaction_tag(tag_id = {id})
 ```
 Log success/failure for each. Continue on failure.
 
-### Step 4b: Delete Created Categories
+#### Step 4b: Delete Created Categories
 
 For each ID in `created_resources.categories`:
 ```
@@ -313,7 +375,7 @@ delete_transaction_category(category_id = {id})
 ```
 Log success/failure for each. Continue on failure.
 
-### Step 4c: Delete Created Accounts
+#### Step 4c: Delete Created Accounts
 
 For each ID in `created_resources.accounts`:
 ```
@@ -321,11 +383,11 @@ delete_account(account_id = {id})
 ```
 Log success/failure for each. Continue on failure.
 
-### Step 5: Verify Tag Cleanup
+#### Step 5: Verify Tag Cleanup
 
 Call `get_transaction_tags()`. Confirm none of the returned tags have names starting with `MCP-Test-`. If any remain, attempt to delete them and warn the user.
 
-### Step 6: Finalize
+#### Step 6: Finalize
 
 Set `status: "completed"` in state file, then delete `mcp-test-state.json`.
 
@@ -333,22 +395,53 @@ Set `status: "completed"` in state file, then delete `mcp-test-state.json`.
 
 ## Reporting
 
-After cleanup, print a final summary:
+After cleanup (or after skipping cleanup in read-only mode), print a final summary.
+
+### Read-only mode example:
 
 ```
-╔══════════════════════════════════════════╗
-║       MCP Tool Test Results Summary      ║
-╠══════════════════════════════════════════╣
-║ Phase 1 — Auth Tools:        3/3  PASS   ║
-║ Phase 2 — Accounts:          5/5  PASS   ║
-║ Phase 3 — Transaction Reads: 14/14 PASS  ║
-║ Phase 4 — Budgets/Cashflow:  12/12 PASS  ║
-║ Phase 5 — Tag CRUD:          13/13 PASS  ║
-║ Phase 6 — Transaction CRUD:  25/25 PASS  ║
-║ Phase 7 — Tagging:           5/5  PASS   ║
-╠══════════════════════════════════════════╣
-║ TOTAL: 77 passed, 0 failed, 0 skipped   ║
-╚══════════════════════════════════════════╝
+╔══════════════════════════════════════════════════╗
+║  MCP Tool Test Results Summary (read-only mode)  ║
+╠══════════════════════════════════════════════════╣
+║ Phase 1  — Auth Tools:        3/3  PASS          ║
+║ Phase 2  — Accounts:          5/5  PASS          ║
+║ Phase 3  — Transaction Reads: 14/14 PASS         ║
+║ Phase 4  — Budgets/Cashflow:  12/12 PASS         ║
+║ Phase 5  — Tag CRUD:          1/1  PASS          ║
+║ Phase 6  — Transaction CRUD:  SKIPPED (write)    ║
+║ Phase 7  — Tagging:           SKIPPED (write)    ║
+║ Phase 8  — Categories:        3/3  PASS          ║
+║ Phase 9  — Details/Splits:    5/5  PASS          ║
+║ Phase 10 — Read-Only Tools:   9/9  PASS          ║
+║ Phase 11 — Account Mgmt:      6/6  PASS          ║
+║ Phase 12 — Analytics:         5/5  PASS          ║
+╠══════════════════════════════════════════════════╣
+║ TOTAL: 63 passed, 0 failed, 0 skipped           ║
+║ Write tests skipped: 64 (server in read-only)    ║
+╚══════════════════════════════════════════════════╝
+```
+
+### Write mode example:
+
+```
+╔══════════════════════════════════════════════════╗
+║ MCP Tool Test Results Summary (read-write mode)  ║
+╠══════════════════════════════════════════════════╣
+║ Phase 1  — Auth Tools:        3/3  PASS          ║
+║ Phase 2  — Accounts:          5/5  PASS          ║
+║ Phase 3  — Transaction Reads: 14/14 PASS         ║
+║ Phase 4  — Budgets/Cashflow:  15/15 PASS         ║
+║ Phase 5  — Tag CRUD:          13/13 PASS         ║
+║ Phase 6  — Transaction CRUD:  25/25 PASS         ║
+║ Phase 7  — Tagging:           5/5  PASS          ║
+║ Phase 8  — Categories:        10/10 PASS         ║
+║ Phase 9  — Details/Splits:    8/8  PASS          ║
+║ Phase 10 — Read-Only Tools:   9/9  PASS          ║
+║ Phase 11 — Account Mgmt:      10/10 PASS         ║
+║ Phase 12 — Analytics:         5/5  PASS          ║
+╠══════════════════════════════════════════════════╣
+║ TOTAL: 127 passed, 0 failed, 0 skipped          ║
+╚══════════════════════════════════════════════════╝
 ```
 
 If any tests failed, list each failure with:

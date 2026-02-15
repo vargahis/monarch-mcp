@@ -1,5 +1,7 @@
 # Phase 5 — Tag CRUD (13 tests)
 
+> **Read-only mode:** Run test 5.1 only. Skip 5.2-5.13 (create/delete tag requires write mode).
+
 **Important:** After every successful `create_transaction_tag` call, immediately append the returned tag ID to `created_resources.tags` in the state file before running the next test.
 
 ---
