@@ -11,6 +11,15 @@ Run all 127 tests across 12 phases, track results, and clean up after yourself.
 
 ---
 
+## Write Mode Requirement
+
+This test suite creates, updates, and deletes data. The server must be running
+with **write tools enabled** (`--enable-write`). When running against the MCP
+tools directly (as this skill does), write mode is required — otherwise the 13
+write tools will be hidden and the mutation phases will fail.
+
+---
+
 ## State File Management
 
 The state file is `mcp-test-state.json` in the project root (`C:\dev\monarch-mcp\monarch-mcp-server\mcp-test-state.json`).

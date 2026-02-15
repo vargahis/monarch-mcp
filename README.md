@@ -92,6 +92,45 @@ Once authenticated, use these tools directly in Claude Desktop:
 - `get_budgets` - Budget information and spending
 - `get_cashflow` - Income/expense analysis
 
+### Read-Only Mode (Default)
+
+The server starts in **read-only mode** by default — only query tools are available. The 13 write tools (create, update, delete) are hidden and blocked until you explicitly opt in.
+
+**Enable write tools via CLI:**
+```bash
+# Bare flag
+monarch-mcp-server --enable-write
+
+# Explicit value
+monarch-mcp-server --enable-write=true
+```
+
+**Enable write tools in Claude Desktop (`.mcpb` install):**
+
+The `.mcpb` bundle includes a toggle in Claude Desktop's server settings. Open the Monarch Money server configuration and enable **"Enable write tools"**.
+
+**Enable write tools in manual Claude Desktop config:**
+
+Add `--enable-write` to the `args` array:
+
+```json
+{
+  "mcpServers": {
+    "Monarch Money": {
+      "command": "python3",
+      "args": ["-m", "monarch_mcp_server", "--enable-write"]
+    }
+  }
+}
+```
+
+**Write tools controlled by this flag:**
+`create_transaction`, `update_transaction`, `delete_transaction`,
+`create_transaction_tag`, `delete_transaction_tag`, `set_transaction_tags`,
+`set_budget_amount`, `update_transaction_splits`,
+`create_transaction_category`, `delete_transaction_category`,
+`create_manual_account`, `update_account`, `delete_account`
+
 ## ✨ Features
 
 ### 📊 Account Management

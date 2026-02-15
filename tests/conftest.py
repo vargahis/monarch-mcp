@@ -18,6 +18,17 @@ Two-tier mocking convention:
 from unittest.mock import patch, AsyncMock  # pylint: disable=unused-import
 
 import pytest
+from fastmcp.tools.tool import FunctionTool
+
+import monarch_mcp_server.server as _server_module
+
+# fastmcp >= 2.8 wraps @mcp.tool() functions in FunctionTool objects that are
+# not directly callable.  Unwrap them so existing tests can call the functions
+# (e.g. ``get_accounts()``) without changes.
+for _attr_name in list(dir(_server_module)):
+    _attr = getattr(_server_module, _attr_name)
+    if isinstance(_attr, FunctionTool):
+        setattr(_server_module, _attr_name, _attr.fn)
 
 
 @pytest.fixture
