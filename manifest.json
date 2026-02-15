@@ -17,7 +17,7 @@
         "run",
         "--directory",
         "${__dirname}",
-        "mcp",
+        "fastmcp",
         "run",
         "${__dirname}/src/monarch_mcp_server/server.py"
       ]

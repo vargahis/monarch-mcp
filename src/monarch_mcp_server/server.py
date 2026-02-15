@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from gql import gql
 from gql.transport.exceptions import TransportServerError, TransportQueryError, TransportError
 from monarchmoney import MonarchMoney, LoginFailedException
