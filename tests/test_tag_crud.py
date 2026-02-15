@@ -3,11 +3,6 @@
 
 import json
 
-from monarch_mcp_server.server import (
-    get_transaction_tags,
-    create_transaction_tag,
-    delete_transaction_tag,
-)
 
 SAMPLE_TAGS_RESPONSE = {
     "householdTransactionTags": [
@@ -22,10 +17,12 @@ SAMPLE_TAGS_RESPONSE = {
 # ===================================================================
 
 
-def test_list_tags(mock_monarch_client):
+async def test_list_tags(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_tags.return_value = SAMPLE_TAGS_RESPONSE
 
-    result = json.loads(get_transaction_tags())
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_tags"))[0].text
+    )
 
     assert len(result) == 2
     assert result[0]["name"] == "Vacation"
@@ -37,14 +34,18 @@ def test_list_tags(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_happy(mock_monarch_client):
+async def test_create_tag_happy(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_tag.return_value = {
         "id": "tag-new",
         "name": "Travel",
         "color": "#19D2A5",
     }
 
-    result = json.loads(create_transaction_tag(name="Travel", color="#19D2A5"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": "Travel", "color": "#19D2A5"}
+        ))[0].text
+    )
 
     assert result["id"] == "tag-new"
     mock_monarch_client.create_transaction_tag.assert_called_once_with(
@@ -57,8 +58,12 @@ def test_create_tag_happy(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_invalid_color_word(mock_monarch_client):
-    result = json.loads(create_transaction_tag(name="Test", color="red"))
+async def test_create_tag_invalid_color_word(mcp_write_client, mock_monarch_client):
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": "Test", "color": "red"}
+        ))[0].text
+    )
 
     assert "error" in result
     mock_monarch_client.create_transaction_tag.assert_not_called()
@@ -69,8 +74,12 @@ def test_create_tag_invalid_color_word(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_short_hex(mock_monarch_client):
-    result = json.loads(create_transaction_tag(name="Test", color="#F00"))
+async def test_create_tag_short_hex(mcp_write_client, mock_monarch_client):
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": "Test", "color": "#F00"}
+        ))[0].text
+    )
 
     assert "error" in result
     mock_monarch_client.create_transaction_tag.assert_not_called()
@@ -81,8 +90,12 @@ def test_create_tag_short_hex(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_empty_name(mock_monarch_client):
-    result = json.loads(create_transaction_tag(name="", color="#19D2A5"))
+async def test_create_tag_empty_name(mcp_write_client, mock_monarch_client):
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": "", "color": "#19D2A5"}
+        ))[0].text
+    )
 
     assert "error" in result
     mock_monarch_client.create_transaction_tag.assert_not_called()
@@ -93,8 +106,12 @@ def test_create_tag_empty_name(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_whitespace_name(mock_monarch_client):
-    result = json.loads(create_transaction_tag(name="   ", color="#19D2A5"))
+async def test_create_tag_whitespace_name(mcp_write_client, mock_monarch_client):
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": "   ", "color": "#19D2A5"}
+        ))[0].text
+    )
 
     assert "error" in result
     mock_monarch_client.create_transaction_tag.assert_not_called()
@@ -105,14 +122,18 @@ def test_create_tag_whitespace_name(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_duplicate_name(mock_monarch_client):
+async def test_create_tag_duplicate_name(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_tag.return_value = {
         "id": "tag-dup",
         "name": "Vacation",
         "color": "#19D2A5",
     }
 
-    result = json.loads(create_transaction_tag(name="Vacation", color="#19D2A5"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": "Vacation", "color": "#19D2A5"}
+        ))[0].text
+    )
 
     assert result["id"] == "tag-dup"
 
@@ -122,14 +143,19 @@ def test_create_tag_duplicate_name(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_unicode_name(mock_monarch_client):
+async def test_create_tag_unicode_name(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_tag.return_value = {
         "id": "tag-u",
         "name": "\u65c5\u884c\u2708\ufe0f",
         "color": "#AABBCC",
     }
 
-    result = json.loads(create_transaction_tag(name="\u65c5\u884c\u2708\ufe0f", color="#AABBCC"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag",
+            {"name": "\u65c5\u884c\u2708\ufe0f", "color": "#AABBCC"},
+        ))[0].text
+    )
 
     assert result["name"] == "\u65c5\u884c\u2708\ufe0f"
 
@@ -139,7 +165,7 @@ def test_create_tag_unicode_name(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_long_name(mock_monarch_client):
+async def test_create_tag_long_name(mcp_write_client, mock_monarch_client):
     long_name = "A" * 250
     mock_monarch_client.create_transaction_tag.return_value = {
         "id": "tag-long",
@@ -147,7 +173,11 @@ def test_create_tag_long_name(mock_monarch_client):
         "color": "#112233",
     }
 
-    result = json.loads(create_transaction_tag(name=long_name, color="#112233"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": long_name, "color": "#112233"}
+        ))[0].text
+    )
 
     assert result["name"] == long_name
 
@@ -157,7 +187,7 @@ def test_create_tag_long_name(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_tag_special_chars(mock_monarch_client):
+async def test_create_tag_special_chars(mcp_write_client, mock_monarch_client):
     special = "Tag & <name> / \"test\""
     mock_monarch_client.create_transaction_tag.return_value = {
         "id": "tag-sp",
@@ -165,7 +195,11 @@ def test_create_tag_special_chars(mock_monarch_client):
         "color": "#ABCDEF",
     }
 
-    result = json.loads(create_transaction_tag(name=special, color="#ABCDEF"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_tag", {"name": special, "color": "#ABCDEF"}
+        ))[0].text
+    )
 
     assert result["name"] == special
 
@@ -175,12 +209,16 @@ def test_create_tag_special_chars(mock_monarch_client):
 # ===================================================================
 
 
-def test_delete_tag_happy(mock_monarch_client):
+async def test_delete_tag_happy(mcp_write_client, mock_monarch_client):
     mock_monarch_client.gql_call.return_value = {
         "deleteTransactionTag": {"__typename": "DeleteTransactionTagPayload"}
     }
 
-    result = json.loads(delete_transaction_tag(tag_id="tag-123"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "delete_transaction_tag", {"tag_id": "tag-123"}
+        ))[0].text
+    )
 
     assert result["deleted"] is True
     assert result["tag_id"] == "tag-123"
@@ -195,10 +233,12 @@ def test_delete_tag_happy(mock_monarch_client):
 # ===================================================================
 
 
-def test_delete_tag_invalid_id(mock_monarch_client):
+async def test_delete_tag_invalid_id(mcp_write_client, mock_monarch_client):
     mock_monarch_client.gql_call.side_effect = Exception("Tag not found")
 
-    result = delete_transaction_tag(tag_id="bad-id")
+    result = (await mcp_write_client.call_tool(
+        "delete_transaction_tag", {"tag_id": "bad-id"}
+    ))[0].text
 
     assert "Error" in result
     assert "Tag not found" in result
@@ -209,9 +249,11 @@ def test_delete_tag_invalid_id(mock_monarch_client):
 # ===================================================================
 
 
-def test_delete_tag_already_deleted(mock_monarch_client):
+async def test_delete_tag_already_deleted(mcp_write_client, mock_monarch_client):
     mock_monarch_client.gql_call.side_effect = Exception("Tag does not exist")
 
-    result = delete_transaction_tag(tag_id="tag-gone")
+    result = (await mcp_write_client.call_tool(
+        "delete_transaction_tag", {"tag_id": "tag-gone"}
+    ))[0].text
 
     assert "Error" in result

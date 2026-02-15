@@ -8,6 +8,10 @@ Two-tier mocking convention:
       2. MonarchMoney class -> patched in secure_session; constructor returns AsyncMock
       3. trigger_auth_flow  -> patched in server to prevent browser opening
 
+    Tests invoke tools through a ``fastmcp.Client`` connected to the MCP
+    server (``mcp_client`` / ``mcp_write_client`` fixtures), exercising the
+    full MCP protocol layer.
+
   Infrastructure tests (test_secure_session, test_auth_handler, test_server_edge_cases):
     Pragmatic internal mocks are allowed where needed — e.g. patching
     _run_sync, _send_json, secure_session, mcp.run, or using tmp_path for
@@ -18,17 +22,17 @@ Two-tier mocking convention:
 from unittest.mock import patch, AsyncMock  # pylint: disable=unused-import
 
 import pytest
-from fastmcp.tools.tool import FunctionTool
+from fastmcp import Client
 
-import monarch_mcp_server.server as _server_module
+from monarch_mcp_server.server import mcp
 
-# fastmcp >= 2.8 wraps @mcp.tool() functions in FunctionTool objects that are
-# not directly callable.  Unwrap them so existing tests can call the functions
-# (e.g. ``get_accounts()``) without changes.
-for _attr_name in list(dir(_server_module)):
-    _attr = getattr(_server_module, _attr_name)
-    if isinstance(_attr, FunctionTool):
-        setattr(_server_module, _attr_name, _attr.fn)
+WRITE_TOOL_NAMES = frozenset({
+    "create_transaction", "update_transaction", "delete_transaction",
+    "create_transaction_tag", "delete_transaction_tag", "set_transaction_tags",
+    "set_budget_amount", "update_transaction_splits",
+    "create_transaction_category", "delete_transaction_category",
+    "create_manual_account", "update_account", "delete_account",
+})
 
 
 @pytest.fixture
@@ -52,3 +56,28 @@ def _isolate(mock_monarch_client, monkeypatch):  # pylint: disable=redefined-out
     monkeypatch.delenv("MONARCH_PASSWORD", raising=False)
     with patch("monarch_mcp_server.server.trigger_auth_flow"):
         yield
+
+
+@pytest.fixture
+async def mcp_client():
+    """Client connected to the MCP server for read-only tool tests."""
+    async with Client(mcp) as client:
+        yield client
+
+
+@pytest.fixture
+async def mcp_write_client():
+    """Client with write tools temporarily enabled."""
+    tools = await mcp.get_tools()
+    disabled = []
+    for name in WRITE_TOOL_NAMES:
+        tool = tools.get(name)
+        if tool and not tool.enabled:
+            tool.enabled = True
+            disabled.append(tool)
+    try:
+        async with Client(mcp) as client:
+            yield client
+    finally:
+        for tool in disabled:
+            tool.enabled = False

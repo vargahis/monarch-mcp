@@ -3,8 +3,6 @@
 
 import json
 
-from monarch_mcp_server.server import get_transaction_splits, update_transaction_splits
-
 
 SAMPLE_SPLITS = {
     "getTransaction": {
@@ -22,32 +20,42 @@ SAMPLE_SPLITS = {
 # ===================================================================
 
 
-def test_get_splits_happy(mock_monarch_client):
+async def test_get_splits_happy(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_splits.return_value = SAMPLE_SPLITS
 
-    result = json.loads(get_transaction_splits(transaction_id="txn-1"))
+    result = json.loads(
+        (await mcp_client.call_tool(
+            "get_transaction_splits", {"transaction_id": "txn-1"}
+        ))[0].text
+    )
 
     splits = result["getTransaction"]["splitTransactions"]
     assert len(splits) == 2
     mock_monarch_client.get_transaction_splits.assert_called_once_with("txn-1")
 
 
-def test_get_splits_empty(mock_monarch_client):
+async def test_get_splits_empty(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_splits.return_value = {
         "getTransaction": {"id": "txn-1", "splitTransactions": []}
     }
 
-    result = json.loads(get_transaction_splits(transaction_id="txn-1"))
+    result = json.loads(
+        (await mcp_client.call_tool(
+            "get_transaction_splits", {"transaction_id": "txn-1"}
+        ))[0].text
+    )
 
     assert result["getTransaction"]["splitTransactions"] == []
 
 
-def test_get_splits_error(mock_monarch_client):
+async def test_get_splits_error(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_splits.side_effect = Exception(
         "Transaction not found"
     )
 
-    result = get_transaction_splits(transaction_id="bad-id")
+    result = (await mcp_client.call_tool(
+        "get_transaction_splits", {"transaction_id": "bad-id"}
+    ))[0].text
 
     assert "Error" in result
 
@@ -57,7 +65,7 @@ def test_get_splits_error(mock_monarch_client):
 # ===================================================================
 
 
-def test_update_splits_happy(mock_monarch_client):
+async def test_update_splits_happy(mcp_write_client, mock_monarch_client):
     mock_monarch_client.update_transaction_splits.return_value = {
         "updateTransactionSplits": {"id": "txn-1"}
     }
@@ -67,7 +75,10 @@ def test_update_splits_happy(mock_monarch_client):
         {"merchantName": "Store B", "amount": -40.0, "categoryId": "cat-2"},
     ]
     result = json.loads(
-        update_transaction_splits(transaction_id="txn-1", split_data=split_data)
+        (await mcp_write_client.call_tool(
+            "update_transaction_splits",
+            {"transaction_id": "txn-1", "split_data": split_data},
+        ))[0].text
     )
 
     assert "updateTransactionSplits" in result
@@ -76,27 +87,33 @@ def test_update_splits_happy(mock_monarch_client):
     )
 
 
-def test_update_splits_remove_all(mock_monarch_client):
+async def test_update_splits_remove_all(mcp_write_client, mock_monarch_client):
     mock_monarch_client.update_transaction_splits.return_value = {
         "updateTransactionSplits": {"id": "txn-1"}
     }
 
     result = json.loads(
-        update_transaction_splits(transaction_id="txn-1", split_data=[])
+        (await mcp_write_client.call_tool(
+            "update_transaction_splits",
+            {"transaction_id": "txn-1", "split_data": []},
+        ))[0].text
     )
 
     assert "updateTransactionSplits" in result
     mock_monarch_client.update_transaction_splits.assert_called_once_with("txn-1", [])
 
 
-def test_update_splits_error(mock_monarch_client):
+async def test_update_splits_error(mcp_write_client, mock_monarch_client):
     mock_monarch_client.update_transaction_splits.side_effect = Exception(
         "Split amounts don't match"
     )
 
-    result = update_transaction_splits(
-        transaction_id="txn-1",
-        split_data=[{"merchantName": "X", "amount": -50.0, "categoryId": "cat-1"}],
-    )
+    result = (await mcp_write_client.call_tool(
+        "update_transaction_splits",
+        {
+            "transaction_id": "txn-1",
+            "split_data": [{"merchantName": "X", "amount": -50.0, "categoryId": "cat-1"}],
+        },
+    ))[0].text
 
     assert "Error" in result

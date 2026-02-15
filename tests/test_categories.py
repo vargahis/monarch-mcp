@@ -4,13 +4,6 @@
 import json
 from datetime import datetime
 
-from monarch_mcp_server.server import (
-    get_transaction_categories,
-    get_transaction_category_groups,
-    create_transaction_category,
-    delete_transaction_category,
-)
-
 
 SAMPLE_CATEGORIES = {
     "categories": [
@@ -46,28 +39,32 @@ SAMPLE_GROUPS = {
 # ===================================================================
 
 
-def test_get_categories_happy(mock_monarch_client):
+async def test_get_categories_happy(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_categories.return_value = SAMPLE_CATEGORIES
 
-    result = json.loads(get_transaction_categories())
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_categories"))[0].text
+    )
 
     assert len(result["categories"]) == 2
     assert result["categories"][0]["name"] == "Groceries"
     mock_monarch_client.get_transaction_categories.assert_called_once()
 
 
-def test_get_categories_empty(mock_monarch_client):
+async def test_get_categories_empty(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_categories.return_value = {"categories": []}
 
-    result = json.loads(get_transaction_categories())
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_categories"))[0].text
+    )
 
     assert result["categories"] == []
 
 
-def test_get_categories_error(mock_monarch_client):
+async def test_get_categories_error(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_categories.side_effect = Exception("API down")
 
-    result = get_transaction_categories()
+    result = (await mcp_client.call_tool("get_transaction_categories"))[0].text
 
     assert "Error" in result
 
@@ -77,21 +74,25 @@ def test_get_categories_error(mock_monarch_client):
 # ===================================================================
 
 
-def test_get_category_groups_happy(mock_monarch_client):
+async def test_get_category_groups_happy(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_category_groups.return_value = SAMPLE_GROUPS
 
-    result = json.loads(get_transaction_category_groups())
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_category_groups"))[0].text
+    )
 
     assert len(result["categoryGroups"]) == 2
     mock_monarch_client.get_transaction_category_groups.assert_called_once()
 
 
-def test_get_category_groups_empty(mock_monarch_client):
+async def test_get_category_groups_empty(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transaction_category_groups.return_value = {
         "categoryGroups": []
     }
 
-    result = json.loads(get_transaction_category_groups())
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_category_groups"))[0].text
+    )
 
     assert result["categoryGroups"] == []
 
@@ -101,13 +102,17 @@ def test_get_category_groups_empty(mock_monarch_client):
 # ===================================================================
 
 
-def test_create_category_happy(mock_monarch_client):
+async def test_create_category_happy(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_category.return_value = {
         "id": "cat-new",
         "name": "Coffee",
     }
 
-    result = json.loads(create_transaction_category(group_id="grp-1", name="Coffee"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "create_transaction_category", {"group_id": "grp-1", "name": "Coffee"}
+        ))[0].text
+    )
 
     assert result["name"] == "Coffee"
     call_kwargs = mock_monarch_client.create_transaction_category.call_args[1]
@@ -117,19 +122,22 @@ def test_create_category_happy(mock_monarch_client):
     assert call_kwargs["rollover_enabled"] is False
 
 
-def test_create_category_with_rollover(mock_monarch_client):
+async def test_create_category_with_rollover(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_category.return_value = {
         "id": "cat-new",
         "name": "Rent",
     }
 
     result = json.loads(
-        create_transaction_category(
-            group_id="grp-1",
-            name="Rent",
-            rollover_enabled=True,
-            rollover_start_month="2025-01-01",
-        )
+        (await mcp_write_client.call_tool(
+            "create_transaction_category",
+            {
+                "group_id": "grp-1",
+                "name": "Rent",
+                "rollover_enabled": True,
+                "rollover_start_month": "2025-01-01",
+            },
+        ))[0].text
     )
 
     assert result["name"] == "Rent"
@@ -138,24 +146,29 @@ def test_create_category_with_rollover(mock_monarch_client):
     assert call_kwargs["rollover_start_month"] == datetime(2025, 1, 1)
 
 
-def test_create_category_custom_icon(mock_monarch_client):
+async def test_create_category_custom_icon(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_category.return_value = {
         "id": "cat-new",
         "name": "Gaming",
     }
 
-    create_transaction_category(group_id="grp-1", name="Gaming", icon="\U0001F3AE")
+    await mcp_write_client.call_tool(
+        "create_transaction_category",
+        {"group_id": "grp-1", "name": "Gaming", "icon": "\U0001F3AE"},
+    )
 
     call_kwargs = mock_monarch_client.create_transaction_category.call_args[1]
     assert call_kwargs["icon"] == "\U0001F3AE"
 
 
-def test_create_category_error(mock_monarch_client):
+async def test_create_category_error(mcp_write_client, mock_monarch_client):
     mock_monarch_client.create_transaction_category.side_effect = Exception(
         "Group not found"
     )
 
-    result = create_transaction_category(group_id="bad-grp", name="Test")
+    result = (await mcp_write_client.call_tool(
+        "create_transaction_category", {"group_id": "bad-grp", "name": "Test"}
+    ))[0].text
 
     assert "Error" in result
 
@@ -165,10 +178,14 @@ def test_create_category_error(mock_monarch_client):
 # ===================================================================
 
 
-def test_delete_category_happy(mock_monarch_client):
+async def test_delete_category_happy(mcp_write_client, mock_monarch_client):
     mock_monarch_client.delete_transaction_category.return_value = True
 
-    result = json.loads(delete_transaction_category(category_id="cat-1"))
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "delete_transaction_category", {"category_id": "cat-1"}
+        ))[0].text
+    )
 
     assert result["deleted"] is True
     assert result["category_id"] == "cat-1"
@@ -176,11 +193,13 @@ def test_delete_category_happy(mock_monarch_client):
     mock_monarch_client.delete_transaction_category.assert_called_once_with("cat-1")
 
 
-def test_delete_category_error(mock_monarch_client):
+async def test_delete_category_error(mcp_write_client, mock_monarch_client):
     mock_monarch_client.delete_transaction_category.side_effect = Exception(
         "Category not found"
     )
 
-    result = delete_transaction_category(category_id="bad-cat")
+    result = (await mcp_write_client.call_tool(
+        "delete_transaction_category", {"category_id": "bad-cat"}
+    ))[0].text
 
     assert "Error" in result
