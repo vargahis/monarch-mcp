@@ -37,11 +37,11 @@ To enable write tools: **Settings > Extensions > Monarch Money MCP Server > Conf
 
 #### Python Library (pip)
 
-> **Why TestPyPI?** The package is currently in pre-release testing. Once validated, it will be published to the main Python Package Index (PyPI) and the install command will simplify to `pip install monarch-mcp`.
-
 ```bash
-pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ monarch-mcp
+pip install monarch-mcp
 ```
+
+> **Contributors**: See [docs/releasing.md](docs/releasing.md) for the release process, version scheme, and pre-release testing via TestPyPI.
 
 Add this to your Claude Desktop configuration file:
 

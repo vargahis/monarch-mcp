@@ -38,9 +38,20 @@ jobs:
       - name: Pack bundle
         run: mcpb pack . monarch-mcp-${{ github.ref_name }}.mcpb
 
+      - name: Detect pre-release
+        id: prerelease
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" =~ (dev|a|alpha|b|beta)[0-9]+$ ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b  # v2
         with:
           tag_name: ${{ github.ref_name }}
           files: monarch-mcp-${{ github.ref_name }}.mcpb
           generate_release_notes: true
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
