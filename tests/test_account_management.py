@@ -313,9 +313,8 @@ async def test_aggregate_snapshots_with_dates(mcp_client, mock_monarch_client):
         {"start_date": "2025-01-01", "end_date": "2025-12-31"},
     )
 
-    from datetime import date
     mock_monarch_client.get_aggregate_snapshots.assert_called_once_with(
-        start_date=date(2025, 1, 1), end_date=date(2025, 12, 31)
+        start_date="2025-01-01", end_date="2025-12-31"
     )
 
 
