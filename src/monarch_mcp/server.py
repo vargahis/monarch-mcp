@@ -1214,11 +1214,10 @@ def get_aggregate_snapshots(
     async def _get_aggregate_snapshots():
         client = await get_monarch_client()
         kwargs = {}
-        # monarchmoney library requires date objects (not strings) for this method
         if start_date is not None:
-            kwargs["start_date"] = datetime.strptime(start_date, "%Y-%m-%d").date()
+            kwargs["start_date"] = start_date
         if end_date is not None:
-            kwargs["end_date"] = datetime.strptime(end_date, "%Y-%m-%d").date()
+            kwargs["end_date"] = end_date
         if account_type is not None:
             kwargs["account_type"] = account_type
         return await client.get_aggregate_snapshots(**kwargs)
