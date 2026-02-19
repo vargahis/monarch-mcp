@@ -44,10 +44,10 @@ jobs:
         id: detect
         run: |
           TAG="${GITHUB_REF_NAME}"
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.(dev|alpha)[0-9]+$ ]] || \
-             [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(a|b)[0-9]+$ ]]; then
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.?(dev|alpha)[0-9]+$ ]] || \
+             [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.?(a|b)[0-9]+$ ]]; then
             echo "target=testpypi" >> "$GITHUB_OUTPUT"
-          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$ ]]; then
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\.?rc[0-9]+)?$ ]]; then
             echo "target=pypi" >> "$GITHUB_OUTPUT"
           else
             echo "::error::Unrecognized tag pattern: $TAG"
