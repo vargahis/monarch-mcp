@@ -39,63 +39,16 @@ jobs:
 
   build:
     needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install build tools
-        run: pip install build
-
-      - name: Build sdist and wheel
-        run: python -m build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: ${{ inputs.tag }}
 
   build-mcpb:
     needs: validate
     if: inputs.target == 'mcp-registry' || inputs.target == 'both'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install mcpb CLI
-        run: npm install -g @anthropic-ai/mcpb
-
-      - name: Inject version from git tag
-        run: |
-          VERSION="${{ inputs.tag }}"
-          VERSION="${VERSION#v}"
-          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
-
-      - name: Validate manifest
-        run: mcpb validate .
-
-      - name: Pack bundle
-        run: mcpb pack . monarch-mcp-${{ inputs.tag }}.mcpb
-
-      - name: Upload mcpb as workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mcpb
-          path: monarch-mcp-${{ inputs.tag }}.mcpb
+    uses: ./.github/workflows/build-mcpb.yml
+    with:
+      tag: ${{ inputs.tag }}
 
   publish-pypi:
     needs: build

@@ -28,12 +28,14 @@ This lets contributors test pre-release packages from TestPyPI without polluting
 
 ## Workflow Chart
 
+Build and MCPB bundle steps are shared via reusable workflows (`build.yml`, `build-mcpb.yml`). PyPI publish steps are inlined because OIDC trusted publishing does not work with reusable workflows.
+
 ```
 Tag push (v*)
   │
   ├─ CI (lint + test)
   │   │
-  │   └─ Build (sdist + wheel)
+  │   └─ Build ·················· (reusable: build.yml)
   │       │
   │       ├─ Detect release type
   │       │   │
@@ -43,12 +45,17 @@ Tag push (v*)
   │       │   │
   │       │   └─ prerelease ► TestPyPI
   │       │
-  │       └─ Build mcpb ──► GitHub Release
+  │       └─ Build mcpb ········· (reusable: build-mcpb.yml)
+  │           └─► GitHub Release
   │
   │
 Manual dispatch (RC only)
   │
   ├─ Validate tag
+  │   │
+  │   ├─ Build ·················· (reusable: build.yml)
+  │   │
+  │   ├─ Build mcpb (if needed) · (reusable: build-mcpb.yml)
   │   │
   │   └─ target?
   │       │
@@ -132,7 +139,7 @@ Every publish (TestPyPI or PyPI) requires the CI workflow to pass first. This in
 - `pylint` scoring 10.00/10
 - `pytest` with 90%+ coverage
 
-The publish workflow reuses `ci.yml` via `workflow_call`.
+The publish workflow reuses `ci.yml`, `build.yml`, and `build-mcpb.yml` via `workflow_call`.
 
 ## MCP Bundle
 

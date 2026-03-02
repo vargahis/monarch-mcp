@@ -11,28 +11,9 @@ jobs:
 
   build:
     needs: ci
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install build tools
-        run: pip install build
-
-      - name: Build sdist and wheel
-        run: python -m build
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: ${{ github.ref_name }}
 
   detect-release-type:
     needs: build
@@ -95,32 +76,20 @@ jobs:
 
   build-mcpb:
     needs: build
+    uses: ./.github/workflows/build-mcpb.yml
+    with:
+      tag: ${{ github.ref_name }}
+
+  github-release:
+    needs: build-mcpb
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Download mcpb artifact
+        uses: actions/download-artifact@v4
         with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install mcpb CLI
-        run: npm install -g @anthropic-ai/mcpb
-
-      - name: Inject version from git tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
-
-      - name: Validate manifest
-        run: mcpb validate .
-
-      - name: Pack bundle
-        run: mcpb pack . monarch-mcp-${{ github.ref_name }}.mcpb
+          name: mcpb
 
       - name: Detect pre-release
         id: prerelease
@@ -139,12 +108,6 @@ jobs:
           files: monarch-mcp-${{ github.ref_name }}.mcpb
           generate_release_notes: true
           prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
-
-      - name: Upload mcpb as workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mcpb
-          path: monarch-mcp-${{ github.ref_name }}.mcpb
 
   publish-mcp-registry:
     needs: [detect-release-type, publish-pypi, build-mcpb]
