@@ -120,13 +120,12 @@ To enable write tools, add `"--enable-write"` to `args`.
 
 ### Authentication
 
-Authentication happens **automatically in your browser** the first time the MCP server starts without a saved session.
+Authentication options:
 
-1. Start (or restart) Claude Desktop
-2. The server detects that no token exists and opens a login page in your browser
-3. Enter your Monarch Money email and password
-4. Provide your 2FA code if you have MFA enabled
-5. Once authenticated, the token is saved to your system keyring — you're all set
+1. **Built-in browser login (default)**  
+   Start (or restart) Claude Desktop and the server will open a login page if no token exists.
+2. **Google OAuth login**  
+   Use MCP tool `authenticate_with_google`, or run `python google_login.py`.
 
 Key details:
 
@@ -134,7 +133,7 @@ Key details:
 - **Token stored in the OS keyring** — persists across restarts, lasts weeks/months
 - **Expired sessions re-authenticate automatically** — the browser login re-triggers on the next tool call
 - **MFA fully supported**
-- **Fallback**: run `python login_setup.py` in a terminal for headless environments
+- **Fallback**: run `python login_setup.py` in a terminal for email/password login
 
 For technical details on the auth architecture, see [docs/authentication.md](docs/authentication.md).
 
@@ -166,6 +165,7 @@ Create a tag called "Business Expenses" in red
 |------|-------------|------|
 | **Auth** | | |
 | `setup_authentication` | Get setup instructions | read |
+| `authenticate_with_google` | Open browser for Google OAuth login and save token | read |
 | `check_auth_status` | Check authentication status | read |
 | `debug_session_loading` | Debug keyring issues | read |
 | **Accounts** | | |
