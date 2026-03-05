@@ -37,6 +37,7 @@
   },
   "tools": [
     { "name": "setup_authentication", "description": "Get instructions for setting up secure authentication" },
+    { "name": "authenticate_with_google", "description": "Open browser for Google OAuth login and save token" },
     { "name": "check_auth_status", "description": "Check if already authenticated with Monarch Money" },
     { "name": "debug_session_loading", "description": "Debug keyring session loading issues" },
     { "name": "get_accounts", "description": "Get all financial accounts" },

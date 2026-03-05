@@ -33,3 +33,15 @@ python login_setup.py
 ```
 
 This authenticates interactively in the terminal and stores the token in the same keyring location.
+
+## Google OAuth Login
+
+If your Monarch account uses Google sign-in, you can use:
+
+```bash
+python google_login.py
+```
+
+Or call the MCP tool `authenticate_with_google`.
+This opens a browser, captures the Monarch `Token` auth header on Monarch domains,
+and stores it in the same system keyring location.

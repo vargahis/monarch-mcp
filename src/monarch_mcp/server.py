@@ -20,6 +20,7 @@ from monarchmoney import MonarchMoney, LoginFailedException
 
 from monarch_mcp.secure_session import secure_session, is_auth_error
 from monarch_mcp.auth_server import trigger_auth_flow, _run_sync
+from monarch_mcp.google_oauth import authenticate_with_google_oauth
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -162,9 +163,9 @@ async def get_monarch_client() -> MonarchMoney:
 @mcp.tool()
 def setup_authentication() -> str:
     """Get instructions for setting up secure authentication with Monarch Money."""
-    return """Monarch Money - Authentication
+    return """Monarch Money - Authentication Options
 
-Authentication happens automatically in your browser:
+Option 1: Built-in browser login (email/password + MFA)
 
 1. When the MCP server starts without a saved session, a login page
    opens in your browser automatically
@@ -184,8 +185,31 @@ Session persists across Claude restarts (weeks/months).
 Expired sessions are re-authenticated automatically.
 Credentials are entered in your browser, never through Claude.
 
+Option 2: Google OAuth login
+- Call `authenticate_with_google` to open a browser window and sign in
+  with Google
+- The server captures your Monarch auth token and stores it in keyring
+
 Alternative: run `python login_setup.py` in a terminal for
-headless environments where a browser is not available."""
+headless environments where a browser is not available.
+For Google OAuth in terminal mode, run `python google_login.py`."""
+
+
+@mcp.tool()
+def authenticate_with_google() -> str:
+    """Open a browser to authenticate with Monarch via Google OAuth and save token."""
+    try:
+        result = authenticate_with_google_oauth()
+        return json.dumps(result, indent=2)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.error("Google OAuth authentication failed: %s", exc)
+        return json.dumps(
+            {
+                "success": False,
+                "message": f"Authentication failed: {exc}",
+            },
+            indent=2,
+        )
 
 
 @mcp.tool()
