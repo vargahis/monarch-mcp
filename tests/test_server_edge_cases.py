@@ -1,6 +1,6 @@
 """Server edge-case unit tests (12 tests).
 
-Covers get_monarch_client env-credential path, check_auth_status/
+Covers _get_monarch_client env-credential path, check_auth_status/
 debug_session_loading branches, update_transaction goal_id,
 refresh_accounts empty, and main().
 """
@@ -11,11 +11,9 @@ from unittest.mock import patch, AsyncMock
 
 import pytest
 
-from monarch_mcp.server import (
-    get_monarch_client,
-    main,
-    run_async,
-)
+from monarch_mcp.server import main
+from monarch_mcp.server import _get_monarch_client
+from monarch_mcp.auth_server import run_with_auth_recovery
 
 
 # ===================================================================
@@ -37,7 +35,7 @@ def test_get_client_env_credentials(monkeypatch):
     ):
         mock_ss.get_authenticated_client.return_value = None
 
-        result = run_async(get_monarch_client())
+        result = run_with_auth_recovery(_get_monarch_client())
 
     assert result is mock_client
     mock_client.login.assert_awaited_once_with("user@test.com", "secret123")
@@ -59,7 +57,7 @@ def test_get_client_env_login_failure(monkeypatch):
         mock_ss.get_authenticated_client.return_value = None
 
         with pytest.raises(RuntimeError, match="bad credentials"):
-            run_async(get_monarch_client())
+            run_with_auth_recovery(_get_monarch_client())
 
 
 def test_get_client_no_credentials(mock_monarch_client, monkeypatch):
@@ -74,7 +72,7 @@ def test_get_client_no_credentials(mock_monarch_client, monkeypatch):
             patch("monarch_mcp.server.trigger_auth_flow") as mock_auth,
             pytest.raises(RuntimeError, match="Authentication needed"),
         ):
-            run_async(get_monarch_client())
+            run_with_auth_recovery(_get_monarch_client())
 
         mock_auth.assert_called_once()
 

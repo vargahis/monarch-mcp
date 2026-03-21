@@ -14,7 +14,7 @@ Two-tier mocking convention:
 
   Infrastructure tests (test_secure_session, test_auth_handler, test_server_edge_cases):
     Pragmatic internal mocks are allowed where needed — e.g. patching
-    _run_sync, _send_json, secure_session, mcp.run, or using tmp_path for
+    run_sync, _send_json, secure_session, mcp.run, or using tmp_path for
     filesystem cleanup.  These tests manage their own patches and may
     override the autouse fixtures when exercising alternate code paths.
 """
