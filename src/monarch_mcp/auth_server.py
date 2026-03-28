@@ -8,6 +8,7 @@ keyring once the user authenticates.
 """
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
 import logging
@@ -179,6 +180,34 @@ def _run_sync(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def run_with_auth_recovery(coro):
+    """Execute an async coroutine, automatically recovering from expired auth.
+
+    Runs the coroutine in a dedicated thread with its own event loop.
+    If the call fails with an authentication error (HTTP 401/403 or
+    ``LoginFailedException``), the stale keyring token is deleted, the
+    browser-based login flow is re-triggered, and a ``RuntimeError`` is
+    raised so the calling MCP tool can inform the user.
+
+    Non-auth exceptions (server errors, network issues, application
+    bugs) propagate unchanged.
+    """
+    with ThreadPoolExecutor() as executor:
+        future = executor.submit(_run_sync, coro)
+        try:
+            return future.result()
+        except (TransportServerError, LoginFailedException) as exc:
+            if is_auth_error(exc):
+                logger.warning("Token appears expired — clearing and triggering re-auth")
+                secure_session.delete_token()
+                trigger_auth_flow()
+                raise RuntimeError(
+                    "Your session has expired. A login page has been opened in "
+                    "your browser — please sign in and try again."
+                ) from exc
+            raise
 
 
 # ── Request handler ─────────────────────────────────────────────────────
