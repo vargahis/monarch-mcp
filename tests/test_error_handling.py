@@ -176,7 +176,7 @@ def test_login_handler_bad_credentials():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=LoginFailedException(),
         ),
     ):
@@ -192,7 +192,7 @@ def test_login_handler_transport_server_error():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=TransportServerError("Server Error", code=500),
         ),
     ):
@@ -208,7 +208,7 @@ def test_login_handler_unexpected_error():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=OSError("network down"),
         ),
     ):
@@ -235,7 +235,7 @@ def test_mfa_handler_bad_code():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=LoginFailedException(),
         ),
     ):
@@ -251,7 +251,7 @@ def test_mfa_handler_transport_server_error():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=TransportServerError("Server Error", code=503),
         ),
     ):
@@ -267,7 +267,7 @@ def test_mfa_handler_unexpected_error():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=OSError("timeout"),
         ),
     ):

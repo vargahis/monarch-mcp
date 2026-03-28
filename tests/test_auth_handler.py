@@ -83,7 +83,7 @@ def test_login_success_no_mfa():
     handler._send_json = Mock()
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
-        patch("monarch_mcp.auth_server.run_sync"),
+        patch("monarch_mcp.auth_server._run_sync"),
         patch("monarch_mcp.auth_server.secure_session") as mock_ss,
     ):
         handler._handle_login({"email": "a@b.com", "password": "pass"})
@@ -100,7 +100,7 @@ def test_login_mfa_required():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=RequireMFAException(),
         ),
     ):
@@ -148,7 +148,7 @@ def test_mfa_success():
 
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
-        patch("monarch_mcp.auth_server.run_sync"),
+        patch("monarch_mcp.auth_server._run_sync"),
         patch("monarch_mcp.auth_server.secure_session") as mock_ss,
     ):
         handler._handle_mfa({"code": "123456"})
@@ -292,7 +292,7 @@ def test_find_free_port():
 def test_validate_token_valid():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney") as mock_cls,
-        patch("monarch_mcp.auth_server.run_sync"),
+        patch("monarch_mcp.auth_server._run_sync"),
     ):
         mock_cls.return_value = MagicMock()
         result = _validate_token("good-token")
@@ -306,7 +306,7 @@ def test_validate_token_auth_error():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=TransportServerError("Unauthorized", code=401),
         ),
     ):
@@ -319,7 +319,7 @@ def test_validate_token_server_error():
     with (
         patch("monarch_mcp.auth_server.MonarchMoney"),
         patch(
-            "monarch_mcp.auth_server.run_sync",
+            "monarch_mcp.auth_server._run_sync",
             side_effect=OSError("network down"),
         ),
     ):

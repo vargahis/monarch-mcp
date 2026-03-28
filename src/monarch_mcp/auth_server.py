@@ -172,7 +172,7 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def run_sync(coro):
+def _run_sync(coro):
     """Run an async coroutine synchronously in a one-shot event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -195,7 +195,7 @@ def run_with_auth_recovery(coro):
     bugs) propagate unchanged.
     """
     with ThreadPoolExecutor() as executor:
-        future = executor.submit(run_sync, coro)
+        future = executor.submit(_run_sync, coro)
         try:
             return future.result()
         except (TransportServerError, LoginFailedException) as exc:
@@ -268,7 +268,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
         try:
             mm = MonarchMoney()
-            run_sync(mm.login(email, password, use_saved_session=False, save_session=False))
+            _run_sync(mm.login(email, password, use_saved_session=False, save_session=False))
 
             # Login succeeded without MFA
             secure_session.save_authenticated_session(mm)
@@ -311,7 +311,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
         try:
             mm = MonarchMoney()
-            run_sync(
+            _run_sync(
                 mm.multi_factor_authenticate(
                     self.auth_state.email,
                     self.auth_state.password,
@@ -375,7 +375,7 @@ def _validate_token(token: str) -> bool | None:
     """
     try:
         mm = MonarchMoney(token=token)
-        run_sync(mm.get_accounts())
+        _run_sync(mm.get_accounts())
         return True
     except Exception as exc:  # pylint: disable=broad-exception-caught
         if is_auth_error(exc):
