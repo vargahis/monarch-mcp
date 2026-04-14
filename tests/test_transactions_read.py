@@ -410,3 +410,33 @@ async def test_combined_search_and_filters(mcp_client, mock_monarch_client):
         category_ids=["cat-1"],
         is_split=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# 3.23 – needs_review=True filter
+# ---------------------------------------------------------------------------
+
+
+async def test_needs_review_true(mcp_client, mock_monarch_client):
+    mock_monarch_client.get_transactions.return_value = _wrap([_make_txn(0)])
+
+    await mcp_client.call_tool("get_transactions", {"needs_review": True})
+
+    mock_monarch_client.get_transactions.assert_called_once_with(
+        limit=100, offset=0, needs_review=True
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3.24 – needs_review=False filter
+# ---------------------------------------------------------------------------
+
+
+async def test_needs_review_false(mcp_client, mock_monarch_client):
+    mock_monarch_client.get_transactions.return_value = _wrap([_make_txn(0)])
+
+    await mcp_client.call_tool("get_transactions", {"needs_review": False})
+
+    mock_monarch_client.get_transactions.assert_called_once_with(
+        limit=100, offset=0, needs_review=False
+    )
