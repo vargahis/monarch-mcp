@@ -22,6 +22,7 @@ def _make_txn(i, **overrides):
         "notes": None,
         "pending": False,
         "isRecurring": False,
+        "needsReview": False,
         "tags": [],
     }
     txn.update(overrides)
@@ -440,3 +441,59 @@ async def test_needs_review_false(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transactions.assert_called_once_with(
         limit=100, offset=0, needs_review=False
     )
+
+
+# ---------------------------------------------------------------------------
+# 3.25 – slim response: falsy fields omitted, compact JSON
+# ---------------------------------------------------------------------------
+
+
+async def test_slim_response_omits_falsy_fields(mcp_client, mock_monarch_client):
+    mock_monarch_client.get_transactions.return_value = _wrap([_make_txn(0)])
+
+    raw = (await mcp_client.call_tool("get_transactions", {"limit": 1})).content[0].text
+    result = json.loads(raw)
+
+    txn = result[0]
+    # Always-present fields
+    assert txn["id"] == "txn-0"
+    assert txn["date"] == "2025-01-15"
+    assert txn["amount"] == -10.0
+    # Omitted when falsy
+    assert "notes" not in txn
+    assert "is_pending" not in txn
+    assert "is_recurring" not in txn
+    assert "needs_review" not in txn
+    assert "tags" not in txn
+    # Compact JSON — no leading whitespace
+    assert not raw.startswith("[\n")
+
+
+# ---------------------------------------------------------------------------
+# 3.26 – slim response: optional fields present when truthy
+# ---------------------------------------------------------------------------
+
+
+async def test_slim_response_includes_truthy_fields(mcp_client, mock_monarch_client):
+    txn = _make_txn(
+        0,
+        notes="split with spouse",
+        pending=True,
+        isRecurring=True,
+        needsReview=True,
+        tags=[{"id": "t1", "name": "Vacation", "color": "#FF0000"}],
+    )
+    mock_monarch_client.get_transactions.return_value = _wrap([txn])
+
+    result = json.loads(
+        (await mcp_client.call_tool("get_transactions", {"limit": 1})).content[0].text
+    )
+
+    txn_out = result[0]
+    assert txn_out["notes"] == "split with spouse"
+    assert txn_out["is_pending"] is True
+    assert txn_out["is_recurring"] is True
+    assert txn_out["needs_review"] is True
+    assert txn_out["tags"] == [{"id": "t1", "name": "Vacation"}]
+    # color must be stripped
+    assert "color" not in txn_out["tags"][0]
