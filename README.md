@@ -182,7 +182,7 @@ Create a tag called "Business Expenses" in red
 | `update_account` | Update account settings | write |
 | `delete_account` | Delete an account | write |
 | **Transactions** | | |
-| `get_transactions` | Get transactions with filtering | read |
+| `get_transactions` | Get transactions with filtering (date, account, category, tag, search, needs\_review, and more) | read |
 | `get_transaction_details` | Get full transaction detail | read |
 | `get_transactions_summary` | Aggregate transaction stats | read |
 | `get_transaction_splits` | Get split information | read |
