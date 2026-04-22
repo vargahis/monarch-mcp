@@ -26,6 +26,23 @@ SAMPLE_CATEGORIES = {
     ]
 }
 
+SAMPLE_CATEGORIES_WITH_DISABLED = {
+    "categories": [
+        {
+            "id": "cat-1",
+            "name": "Groceries",
+            "isDisabled": False,
+            "group": {"id": "grp-1", "name": "Food & Drink", "type": "expense"},
+        },
+        {
+            "id": "cat-old",
+            "name": "Old Category",
+            "isDisabled": True,
+            "group": {"id": "grp-1", "name": "Food & Drink", "type": "expense"},
+        },
+    ]
+}
+
 SAMPLE_GROUPS = {
     "categoryGroups": [
         {"id": "grp-1", "name": "Food & Drink", "order": 0, "type": "expense"},
@@ -46,9 +63,43 @@ async def test_get_categories_happy(mcp_client, mock_monarch_client):
         (await mcp_client.call_tool("get_transaction_categories")).content[0].text
     )
 
-    assert len(result["categories"]) == 2
-    assert result["categories"][0]["name"] == "Groceries"
+    assert len(result) == 2
+    assert result[0]["id"] == "cat-1"
+    assert result[0]["name"] == "Groceries"
+    assert result[0]["is_disabled"] is False
+    assert result[0]["group_name"] == "Food & Drink"
+    assert result[0]["group_type"] == "expense"
+    assert "order" not in result[0]
+    assert "isSystemCategory" not in result[0]
     mock_monarch_client.get_transaction_categories.assert_called_once()
+
+
+async def test_get_categories_is_disabled(mcp_client, mock_monarch_client):
+    mock_monarch_client.get_transaction_categories.return_value = (
+        SAMPLE_CATEGORIES_WITH_DISABLED
+    )
+
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_categories")).content[0].text
+    )
+
+    assert result[0]["is_disabled"] is False
+    assert result[1]["is_disabled"] is True
+
+
+async def test_get_categories_missing_fields(mcp_client, mock_monarch_client):
+    mock_monarch_client.get_transaction_categories.return_value = {
+        "categories": [{"id": "cat-x", "name": "Partial"}]
+    }
+
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_categories")).content[0].text
+    )
+
+    assert result[0]["id"] == "cat-x"
+    assert result[0]["is_disabled"] is False
+    assert result[0]["group_name"] is None
+    assert result[0]["group_type"] is None
 
 
 async def test_get_categories_empty(mcp_client, mock_monarch_client):
@@ -58,7 +109,7 @@ async def test_get_categories_empty(mcp_client, mock_monarch_client):
         (await mcp_client.call_tool("get_transaction_categories")).content[0].text
     )
 
-    assert result["categories"] == []
+    assert result == []
 
 
 async def test_get_categories_error(mcp_client, mock_monarch_client):
