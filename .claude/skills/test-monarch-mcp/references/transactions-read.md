@@ -229,3 +229,33 @@ get_transactions(start_date = "2030-01-01", end_date = "2030-12-31")
 **Validation:** Response is an empty list or a list with zero items. No crash.
 
 **Cleanup:** None.
+
+---
+
+## Test 3.15 — needs_review=True Filter
+
+**Tool call:**
+```
+get_transactions(needs_review = True)
+```
+
+**Expected:** A list of transactions that are flagged for review. May be empty if no transactions need review.
+
+**Validation:** Response is a list (possibly empty). No crash or error string.
+
+**Cleanup:** None.
+
+---
+
+## Test 3.16 — needs_review=False Filter
+
+**Tool call:**
+```
+get_transactions(needs_review = False)
+```
+
+**Expected:** A list of transactions that do NOT need review.
+
+**Validation:** Response is a non-empty list (most transactions should not need review). No crash or error string.
+
+**Cleanup:** None.

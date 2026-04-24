@@ -410,3 +410,33 @@ async def test_combined_search_and_filters(mcp_client, mock_monarch_client):
         category_ids=["cat-1"],
         is_split=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# 3.23 – needs_review=True returns not-yet-supported error
+# ---------------------------------------------------------------------------
+
+
+async def test_needs_review_true(mcp_client, mock_monarch_client):
+    result = json.loads(
+        (await mcp_client.call_tool("get_transactions", {"needs_review": True})).content[0].text
+    )
+
+    assert "error" in result
+    assert "monarchmoneycommunity" in result["error"]
+    mock_monarch_client.get_transactions.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 3.24 – needs_review=False returns not-yet-supported error
+# ---------------------------------------------------------------------------
+
+
+async def test_needs_review_false(mcp_client, mock_monarch_client):
+    result = json.loads(
+        (await mcp_client.call_tool("get_transactions", {"needs_review": False})).content[0].text
+    )
+
+    assert "error" in result
+    assert "monarchmoneycommunity" in result["error"]
+    mock_monarch_client.get_transactions.assert_not_called()
