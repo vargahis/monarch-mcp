@@ -248,6 +248,7 @@ def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-
     is_split: Optional[bool] = None,
     is_recurring: Optional[bool] = None,
     synced_from_institution: Optional[bool] = None,
+    needs_review: Optional[bool] = None,
 ) -> str:
     """
     Get transactions from Monarch Money.
@@ -268,7 +269,15 @@ def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-
         is_split: Filter split/unsplit transactions
         is_recurring: Filter recurring/non-recurring transactions
         synced_from_institution: Filter synced/manual transactions
+        needs_review: Filter transactions that need review
     """
+    if needs_review is not None:
+        return json.dumps(
+            {"error": "needs_review filter is not yet supported by the installed version of "
+                      "monarchmoneycommunity. It will be available in the next library release."},
+            indent=2,
+        )
+
     if bool(start_date) != bool(end_date):
         return json.dumps(
             {"error": "Both start_date and end_date are required when filtering by date."},
@@ -311,6 +320,8 @@ def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-
             filters["is_recurring"] = is_recurring
         if synced_from_institution is not None:
             filters["synced_from_institution"] = synced_from_institution
+        if needs_review is not None:
+            filters["needs_review"] = needs_review
 
         return await client.get_transactions(limit=limit, offset=offset, **filters)
 

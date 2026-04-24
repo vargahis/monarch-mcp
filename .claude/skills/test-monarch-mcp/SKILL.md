@@ -1,6 +1,6 @@
 ---
 name: test-monarch-mcp
-description: Systematically test Monarch Money MCP tools in read-only mode (26 tools, 63 tests) or write-enabled mode (all 39 tools, 127 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
+description: Systematically test Monarch Money MCP tools in read-only mode (26 tools, 65 tests) or write-enabled mode (all 39 tools, 129 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
 user_invocable: true
 ---
 
@@ -15,8 +15,8 @@ Run tests across 12 phases, track results, and clean up after yourself.
 
 This test suite supports two modes, auto-detected at startup:
 
-- **Read-only mode** (default): Tests 26 read-only tools (63 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
-- **Write-enabled mode** (`--enable-write`): Tests all 39 tools (127 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
+- **Read-only mode** (default): Tests 26 read-only tools (65 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
+- **Write-enabled mode** (`--enable-write`): Tests all 39 tools (129 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
 
 ---
 
@@ -67,7 +67,7 @@ The state file is `mcp-test-state.json` in the project root.
   },
   "results": {},
   "summary": {
-    "total": 127,
+    "total": 129,
     "passed": 0,
     "failed": 0,
     "skipped": 0
@@ -75,8 +75,8 @@ The state file is `mcp-test-state.json` in the project root.
 }
 ```
 
-In **read-only mode**, `summary.total` is `63` and `original_values` is omitted (no mutations will happen).
-In **write-enabled mode**, `summary.total` is `127`.
+In **read-only mode**, `summary.total` is `65` and `original_values` is omitted (no mutations will happen).
+In **write-enabled mode**, `summary.total` is `129`.
 
 ### Update Cadence
 
@@ -128,7 +128,7 @@ To test all 127 tools, disable `monarch-money-read-only` and enable `monarch-mon
 
 **WARNING: Server is running in read-write mode (all 39 tools).**
 
-I'll run all 127 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
+I'll run all 129 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
 
 - It **creates and deletes** transactions, tags, categories, and accounts.
 - It **temporarily modifies** an existing transaction (then reverts it).
@@ -197,7 +197,7 @@ After completing all tests, update state file: `last_completed_phase: 2`, add re
 
 ---
 
-## Phase 3 — Transaction Reads (14 tests)
+## Phase 3 — Transaction Reads (16 tests)
 
 Load and follow: `references/transactions-read.md`
 
@@ -405,7 +405,7 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ╠══════════════════════════════════════════════════╣
 ║ Phase 1  — Auth Tools:        3/3  PASS          ║
 ║ Phase 2  — Accounts:          5/5  PASS          ║
-║ Phase 3  — Transaction Reads: 14/14 PASS         ║
+║ Phase 3  — Transaction Reads: 16/16 PASS         ║
 ║ Phase 4  — Budgets/Cashflow:  12/12 PASS         ║
 ║ Phase 5  — Tag CRUD:          1/1  PASS          ║
 ║ Phase 6  — Transaction CRUD:  SKIPPED (write)    ║
@@ -416,7 +416,7 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 11 — Account Mgmt:      6/6  PASS          ║
 ║ Phase 12 — Analytics:         5/5  PASS          ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 63 passed, 0 failed, 0 skipped           ║
+║ TOTAL: 65 passed, 0 failed, 0 skipped           ║
 ║ Write tests skipped: 64 (server in read-only)    ║
 ╚══════════════════════════════════════════════════╝
 ```
@@ -429,7 +429,7 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ╠══════════════════════════════════════════════════╣
 ║ Phase 1  — Auth Tools:        3/3  PASS          ║
 ║ Phase 2  — Accounts:          5/5  PASS          ║
-║ Phase 3  — Transaction Reads: 14/14 PASS         ║
+║ Phase 3  — Transaction Reads: 16/16 PASS         ║
 ║ Phase 4  — Budgets/Cashflow:  15/15 PASS         ║
 ║ Phase 5  — Tag CRUD:          13/13 PASS         ║
 ║ Phase 6  — Transaction CRUD:  25/25 PASS         ║
@@ -440,7 +440,7 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 11 — Account Mgmt:      10/10 PASS         ║
 ║ Phase 12 — Analytics:         5/5  PASS          ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 127 passed, 0 failed, 0 skipped          ║
+║ TOTAL: 129 passed, 0 failed, 0 skipped          ║
 ╚══════════════════════════════════════════════════╝
 ```
 
