@@ -413,30 +413,30 @@ async def test_combined_search_and_filters(mcp_client, mock_monarch_client):
 
 
 # ---------------------------------------------------------------------------
-# 3.23 – needs_review=True returns not-yet-supported error
+# 3.23 – needs_review=True is passed through to the library
 # ---------------------------------------------------------------------------
 
 
 async def test_needs_review_true(mcp_client, mock_monarch_client):
-    result = json.loads(
-        (await mcp_client.call_tool("get_transactions", {"needs_review": True})).content[0].text
-    )
+    mock_monarch_client.get_transactions.return_value = _wrap([_make_txn(0)])
 
-    assert "error" in result
-    assert "monarchmoneycommunity" in result["error"]
-    mock_monarch_client.get_transactions.assert_not_called()
+    await mcp_client.call_tool("get_transactions", {"needs_review": True})
+
+    mock_monarch_client.get_transactions.assert_called_once_with(
+        limit=100, offset=0, needs_review=True
+    )
 
 
 # ---------------------------------------------------------------------------
-# 3.24 – needs_review=False returns not-yet-supported error
+# 3.24 – needs_review=False is passed through to the library
 # ---------------------------------------------------------------------------
 
 
 async def test_needs_review_false(mcp_client, mock_monarch_client):
-    result = json.loads(
-        (await mcp_client.call_tool("get_transactions", {"needs_review": False})).content[0].text
-    )
+    mock_monarch_client.get_transactions.return_value = _wrap([_make_txn(0)])
 
-    assert "error" in result
-    assert "monarchmoneycommunity" in result["error"]
-    mock_monarch_client.get_transactions.assert_not_called()
+    await mcp_client.call_tool("get_transactions", {"needs_review": False})
+
+    mock_monarch_client.get_transactions.assert_called_once_with(
+        limit=100, offset=0, needs_review=False
+    )
