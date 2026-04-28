@@ -271,13 +271,6 @@ def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-
         synced_from_institution: Filter synced/manual transactions
         needs_review: Filter transactions that need review
     """
-    if needs_review is not None:
-        return json.dumps(
-            {"error": "needs_review filter is not yet supported by the installed version of "
-                      "monarchmoneycommunity. It will be available in the next library release."},
-            indent=2,
-        )
-
     if bool(start_date) != bool(end_date):
         return json.dumps(
             {"error": "Both start_date and end_date are required when filtering by date."},
