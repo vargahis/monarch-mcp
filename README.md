@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 
 - **Secure by design** — browser-based login, token stored in OS keychain (never in config files or env vars)
 - **Safe by default** — read-only mode prevents accidental changes; write tools require explicit opt-in
-- **Comprehensive** — 37 tools covering accounts, transactions, splits, budgets, cashflow, tags, categories, and credit history
+- **Comprehensive** — 38 tools covering accounts, transactions, splits, budgets, cashflow, tags, categories, rules, and credit history
 - **Easy to install** — Claude Desktop extension (`.mcpb`), `uvx`, or `pip`
 
 **Two operating modes:**
@@ -18,7 +18,7 @@ The server starts in **read-only mode** by default. Write tools are hidden and b
 |---|---|---|
 | **View** accounts, transactions, budgets | Yes | Yes |
 | **Analyze** cashflow, spending, net worth | Yes | Yes |
-| **Create** transactions, tags, categories | No | Yes |
+| **Create** transactions, tags, categories, rules | No | Yes |
 | **Update** accounts, budgets, splits | No | Yes |
 | **Delete** transactions, tags, accounts | No | Yes |
 
@@ -201,6 +201,8 @@ Create a tag called "Business Expenses" in red
 | `get_transaction_category_groups` | Get category groups | read |
 | `create_transaction_category` | Create a category | write |
 | `delete_transaction_category` | Delete a category | write |
+| **Rules** | | |
+| `create_transaction_rule` | Create an auto-categorization rule | write |
 | **Budgets & Cashflow** | | |
 | `get_budgets` | Get budget information | read |
 | `get_cashflow` | Get cashflow analysis | read |

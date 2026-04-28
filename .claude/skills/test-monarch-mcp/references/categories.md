@@ -4,7 +4,7 @@
 
 ## 8.1 — get_transaction_categories: returns categories
 Call `get_transaction_categories()`.
-**Expected:** JSON with a `categories` key containing a non-empty list. Each category has `id`, `name`, and `group`.
+**Expected:** A JSON array (not wrapped in a key) with at least one item. Each item has `id`, `name`, `is_disabled`, `group_name`, and `group_type`.
 
 ## 8.2 — get_transaction_category_groups: returns groups
 Call `get_transaction_category_groups()`.
