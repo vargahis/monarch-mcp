@@ -1,13 +1,13 @@
 ---
 name: test-monarch-mcp
-description: Systematically test Monarch Money MCP tools in read-only mode (26 tools, 65 tests) or write-enabled mode (all 39 tools, 129 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
+description: Systematically test Monarch Money MCP tools in read-only mode (26 tools, 65 tests) or write-enabled mode (all 40 tools, 136 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
 user_invocable: true
 ---
 
 # Test Monarch MCP Skill
 
 You are executing a comprehensive test suite for the Monarch Money MCP server.
-Run tests across 12 phases, track results, and clean up after yourself.
+Run tests across 13 phases, track results, and clean up after yourself.
 
 ---
 
@@ -16,7 +16,7 @@ Run tests across 12 phases, track results, and clean up after yourself.
 This test suite supports two modes, auto-detected at startup:
 
 - **Read-only mode** (default): Tests 26 read-only tools (65 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
-- **Write-enabled mode** (`--enable-write`): Tests all 39 tools (129 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
+- **Write-enabled mode** (`--enable-write`): Tests all 40 tools (136 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
 
 ---
 
@@ -67,7 +67,7 @@ The state file is `mcp-test-state.json` in the project root.
   },
   "results": {},
   "summary": {
-    "total": 129,
+    "total": 136,
     "passed": 0,
     "failed": 0,
     "skipped": 0
@@ -76,7 +76,7 @@ The state file is `mcp-test-state.json` in the project root.
 ```
 
 In **read-only mode**, `summary.total` is `65` and `original_values` is omitted (no mutations will happen).
-In **write-enabled mode**, `summary.total` is `129`.
+In **write-enabled mode**, `summary.total` is `136`.
 
 ### Update Cadence
 
@@ -114,9 +114,9 @@ Based on the detected mode, display the appropriate message and **STOP and wait 
 
 **Server is running in read-only mode (26 tools).**
 
-I'll run 63 read-only tests and skip 64 write tests. No data will be created, modified, or deleted on your Monarch account.
+I'll run 65 read-only tests and skip 71 write tests. No data will be created, modified, or deleted on your Monarch account.
 
-To test all 127 tools, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`, then restart.
+To test all 136 tests, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`, then restart.
 
 **Proceed with read-only tests?**
 
@@ -126,9 +126,9 @@ To test all 127 tools, disable `monarch-money-read-only` and enable `monarch-mon
 
 ---
 
-**WARNING: Server is running in read-write mode (all 39 tools).**
+**WARNING: Server is running in read-write mode (all 40 tools).**
 
-I'll run all 129 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
+I'll run all 136 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
 
 - It **creates and deletes** transactions, tags, categories, and accounts.
 - It **temporarily modifies** an existing transaction (then reverts it).
@@ -315,6 +315,20 @@ After completing all tests, update state file: `last_completed_phase: 12`, add r
 
 ---
 
+## Phase 13 — Transaction Rules (7 tests)
+
+Load and follow: `references/transaction-rules.md`
+
+**Read-only mode:** Skip entire phase (0 tests). All tests require write tools.
+
+Tests `create_transaction_rule` — happy paths, operator variants, backfill flag, and input validation.
+
+> ⚠️ Rules cannot be deleted via the API. Test rules will persist in the account and must be removed manually via the Monarch UI if desired.
+
+After completing all tests, update state file: `last_completed_phase: 13`, add results.
+
+---
+
 ## Cleanup Phase
 
 ### Read-only mode
@@ -415,9 +429,10 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 10 — Read-Only Tools:   9/9  PASS          ║
 ║ Phase 11 — Account Mgmt:      6/6  PASS          ║
 ║ Phase 12 — Analytics:         5/5  PASS          ║
+║ Phase 13 — Rules:             SKIPPED (write)    ║
 ╠══════════════════════════════════════════════════╣
 ║ TOTAL: 65 passed, 0 failed, 0 skipped           ║
-║ Write tests skipped: 64 (server in read-only)    ║
+║ Write tests skipped: 71 (server in read-only)    ║
 ╚══════════════════════════════════════════════════╝
 ```
 
@@ -439,8 +454,9 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 10 — Read-Only Tools:   9/9  PASS          ║
 ║ Phase 11 — Account Mgmt:      10/10 PASS         ║
 ║ Phase 12 — Analytics:         5/5  PASS          ║
+║ Phase 13 — Transaction Rules: 7/7  PASS          ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 129 passed, 0 failed, 0 skipped          ║
+║ TOTAL: 136 passed, 0 failed, 0 skipped          ║
 ╚══════════════════════════════════════════════════╝
 ```
 
