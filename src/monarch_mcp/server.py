@@ -3,6 +3,7 @@
 
 import argparse
 import functools
+import inspect
 import json
 import logging
 import os
@@ -18,7 +19,7 @@ from gql.transport.exceptions import TransportServerError, TransportQueryError, 
 from monarchmoney import MonarchMoney
 
 from monarch_mcp.secure_session import secure_session
-from monarch_mcp.auth_server import trigger_auth_flow, run_with_auth_recovery
+from monarch_mcp.auth_server import trigger_auth_flow, with_auth_recovery
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -51,42 +52,58 @@ mcp = FastMCP("Monarch Money MCP Server")
 
 # ── MCP tool error handling ────────────────────────────────────────────
 
+def _format_mcp_error(operation: str, exc: BaseException) -> str:
+    """Format an exception as a user-readable MCP tool error string.
+
+    Centralizes the error-classification logic shared by both the
+    sync and async branches of :func:`_handle_mcp_errors`.
+    """
+    if isinstance(exc, RuntimeError):
+        logger.error("Runtime error %s: %s", operation, exc)
+        return f"Error {operation}: {exc}"
+    if isinstance(exc, TransportServerError):
+        code = getattr(exc, "code", "unknown")
+        logger.error("Monarch API HTTP %s error %s: %s", code, operation, exc)
+        return f"Error {operation}: Monarch API returned HTTP {code}: {exc}"
+    if isinstance(exc, TransportQueryError):
+        logger.error("Monarch API query error %s: %s", operation, exc)
+        return f"Error {operation}: API query failed: {exc}"
+    if isinstance(exc, TransportError):
+        logger.error("Monarch API connection error %s: %s", operation, exc)
+        return f"Error {operation}: connection error: {exc}"
+    logger.error(
+        "Unexpected error %s: %s (%s)",
+        operation, exc, type(exc).__name__,
+    )
+    return f"Error {operation}: {exc}"
+
+
 def _handle_mcp_errors(operation: str):
     """Decorator providing granular exception handling for MCP tool functions.
 
-    Catches specific known exception types with appropriate log messages,
-    with a catch-all for anything unexpected.  Every path returns a
-    user-readable error string so the MCP tool never crashes.
+    Detects whether the wrapped function is a coroutine function and
+    returns the matching wrapper.  Both sync and async tools share the
+    same exception classification (see :func:`_format_mcp_error`) so
+    every path returns a user-readable error string and the MCP tool
+    never crashes.
     """
     def decorator(func):
+        if inspect.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    return _format_mcp_error(operation, exc)
+            return async_wrapper
+
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def sync_wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except RuntimeError as exc:
-                logger.error("Runtime error %s: %s", operation, exc)
-                return f"Error {operation}: {exc}"
-            except TransportServerError as exc:
-                code = getattr(exc, "code", "unknown")
-                logger.error(
-                    "Monarch API HTTP %s error %s: %s", code, operation, exc,
-                )
-                return f"Error {operation}: Monarch API returned HTTP {code}: {exc}"
-            except TransportQueryError as exc:
-                logger.error("Monarch API query error %s: %s", operation, exc)
-                return f"Error {operation}: API query failed: {exc}"
-            except TransportError as exc:
-                logger.error(
-                    "Monarch API connection error %s: %s", operation, exc,
-                )
-                return f"Error {operation}: connection error: {exc}"
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.error(
-                    "Unexpected error %s: %s (%s)",
-                    operation, exc, type(exc).__name__,
-                )
-                return f"Error {operation}: {exc}"
-        return wrapper
+                return _format_mcp_error(operation, exc)
+        return sync_wrapper
     return decorator
 
 
@@ -203,14 +220,14 @@ def debug_session_loading() -> str:
 
 @mcp.tool()
 @_handle_mcp_errors("getting accounts")
-def get_accounts() -> str:
+async def get_accounts() -> str:
     """Get all financial accounts from Monarch Money."""
 
     async def _get_accounts():
         client = await _get_monarch_client()
         return await client.get_accounts()
 
-    accounts = run_with_auth_recovery(_get_accounts())
+    accounts = await with_auth_recovery(_get_accounts())
 
     # Format accounts for display
     account_list = []
@@ -232,7 +249,7 @@ def get_accounts() -> str:
 
 @mcp.tool()
 @_handle_mcp_errors("getting transactions")
-def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches
+async def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals,too-many-branches
     limit: int = 100,
     offset: int = 0,
     start_date: Optional[str] = None,
@@ -318,7 +335,7 @@ def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-
 
         return await client.get_transactions(limit=limit, offset=offset, **filters)
 
-    transactions = run_with_auth_recovery(_get_transactions())
+    transactions = await with_auth_recovery(_get_transactions())
 
     # Format transactions for display — omit falsy/empty fields to reduce response size
     transaction_list = []
@@ -357,7 +374,7 @@ def get_transactions(  # pylint: disable=too-many-arguments,too-many-positional-
 
 @mcp.tool()
 @_handle_mcp_errors("getting budgets")
-def get_budgets(
+async def get_budgets(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     use_v2_goals: bool = True,
@@ -385,14 +402,14 @@ def get_budgets(
             filters["end_date"] = end_date
         return await client.get_budgets(use_v2_goals=use_v2_goals, **filters)
 
-    budgets = run_with_auth_recovery(_get_budgets())
+    budgets = await with_auth_recovery(_get_budgets())
 
     return json.dumps(budgets, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting cashflow")
-def get_cashflow(
+async def get_cashflow(
     start_date: Optional[str] = None, end_date: Optional[str] = None
 ) -> str:
     """
@@ -419,14 +436,14 @@ def get_cashflow(
 
         return await client.get_cashflow(**filters)
 
-    cashflow = run_with_auth_recovery(_get_cashflow())
+    cashflow = await with_auth_recovery(_get_cashflow())
 
     return json.dumps(cashflow, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting account holdings")
-def get_account_holdings(account_id: str) -> str:
+async def get_account_holdings(account_id: str) -> str:
     """
     Get investment holdings for a specific account.
 
@@ -438,14 +455,14 @@ def get_account_holdings(account_id: str) -> str:
         client = await _get_monarch_client()
         return await client.get_account_holdings(account_id)
 
-    holdings = run_with_auth_recovery(_get_holdings())
+    holdings = await with_auth_recovery(_get_holdings())
 
     return json.dumps(holdings, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction")
-def create_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def create_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_id: str,
     amount: float,
     merchant_name: str,
@@ -479,14 +496,14 @@ def create_transaction(  # pylint: disable=too-many-arguments,too-many-positiona
             update_balance=update_balance,
         )
 
-    result = run_with_auth_recovery(_create_transaction())
+    result = await with_auth_recovery(_create_transaction())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating transaction")
-def update_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def update_transaction(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     transaction_id: str,
     category_id: Optional[str] = None,
     merchant_name: Optional[str] = None,
@@ -536,14 +553,14 @@ def update_transaction(  # pylint: disable=too-many-arguments,too-many-positiona
 
         return await client.update_transaction(**update_data)
 
-    result = run_with_auth_recovery(_update_transaction())
+    result = await with_auth_recovery(_update_transaction())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting transaction")
-def delete_transaction(transaction_id: str) -> str:
+async def delete_transaction(transaction_id: str) -> str:
     """
     Delete a transaction from Monarch Money.
 
@@ -555,14 +572,14 @@ def delete_transaction(transaction_id: str) -> str:
         client = await _get_monarch_client()
         return await client.delete_transaction(transaction_id)
 
-    run_with_auth_recovery(_delete_transaction())
+    await with_auth_recovery(_delete_transaction())
 
     return json.dumps({"deleted": True, "transaction_id": transaction_id}, indent=2)
 
 
 @mcp.tool()
 @_handle_mcp_errors("refreshing accounts")
-def refresh_accounts() -> str:
+async def refresh_accounts() -> str:
     """Request account data refresh from financial institutions."""
 
     async def _refresh_accounts():
@@ -577,21 +594,21 @@ def refresh_accounts() -> str:
             return {"error": "No accounts found to refresh."}
         return await client.request_accounts_refresh(account_ids)
 
-    result = run_with_auth_recovery(_refresh_accounts())
+    result = await with_auth_recovery(_refresh_accounts())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting transaction tags")
-def get_transaction_tags() -> str:
+async def get_transaction_tags() -> str:
     """Get all transaction tags from Monarch Money."""
 
     async def _get_transaction_tags():
         client = await _get_monarch_client()
         return await client.get_transaction_tags()
 
-    tags = run_with_auth_recovery(_get_transaction_tags())
+    tags = await with_auth_recovery(_get_transaction_tags())
 
     # Format tags for display
     tag_list = []
@@ -610,7 +627,7 @@ def get_transaction_tags() -> str:
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction tag")
-def create_transaction_tag(name: str, color: str) -> str:
+async def create_transaction_tag(name: str, color: str) -> str:
     """
     Create a new transaction tag in Monarch Money.
 
@@ -635,14 +652,14 @@ def create_transaction_tag(name: str, color: str) -> str:
         client = await _get_monarch_client()
         return await client.create_transaction_tag(name, color)
 
-    result = run_with_auth_recovery(_create_transaction_tag())
+    result = await with_auth_recovery(_create_transaction_tag())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting transaction tag")
-def delete_transaction_tag(tag_id: str) -> str:
+async def delete_transaction_tag(tag_id: str) -> str:
     """
     Delete a transaction tag from Monarch Money.
 
@@ -668,14 +685,14 @@ def delete_transaction_tag(tag_id: str) -> str:
             variables=variables,
         )
 
-    run_with_auth_recovery(_delete_transaction_tag())
+    await with_auth_recovery(_delete_transaction_tag())
 
     return json.dumps({"deleted": True, "tag_id": tag_id}, indent=2)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("setting transaction tags")
-def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
+async def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
     """
     Set tags on a transaction (replaces existing tags).
 
@@ -690,7 +707,7 @@ def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
         client = await _get_monarch_client()
         return await client.set_transaction_tags(transaction_id, tag_ids)
 
-    result = run_with_auth_recovery(_set_transaction_tags())
+    result = await with_auth_recovery(_set_transaction_tags())
 
     return json.dumps(result, indent=2, default=str)
 
@@ -800,14 +817,14 @@ def create_transaction_rule(  # pylint: disable=too-many-arguments,too-many-posi
 
 @mcp.tool()
 @_handle_mcp_errors("getting transaction categories")
-def get_transaction_categories() -> str:
+async def get_transaction_categories() -> str:
     """Get all transaction categories from Monarch Money."""
 
     async def _get_transaction_categories():
         client = await _get_monarch_client()
         return await client.get_transaction_categories()
 
-    categories = run_with_auth_recovery(_get_transaction_categories())
+    categories = await with_auth_recovery(_get_transaction_categories())
 
     slim = [
         {
@@ -824,21 +841,21 @@ def get_transaction_categories() -> str:
 
 @mcp.tool()
 @_handle_mcp_errors("getting transaction category groups")
-def get_transaction_category_groups() -> str:
+async def get_transaction_category_groups() -> str:
     """Get all transaction category groups from Monarch Money."""
 
     async def _get_transaction_category_groups():
         client = await _get_monarch_client()
         return await client.get_transaction_category_groups()
 
-    groups = run_with_auth_recovery(_get_transaction_category_groups())
+    groups = await with_auth_recovery(_get_transaction_category_groups())
 
     return json.dumps(groups, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting transaction details")
-def get_transaction_details(
+async def get_transaction_details(
     transaction_id: str,
     redirect_posted: bool = True,
 ) -> str:
@@ -856,14 +873,14 @@ def get_transaction_details(
             transaction_id, redirect_posted=redirect_posted,
         )
 
-    details = run_with_auth_recovery(_get_transaction_details())
+    details = await with_auth_recovery(_get_transaction_details())
 
     return json.dumps(details, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting recurring transactions")
-def get_recurring_transactions(
+async def get_recurring_transactions(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> str:
@@ -889,56 +906,56 @@ def get_recurring_transactions(
             filters["end_date"] = end_date
         return await client.get_recurring_transactions(**filters)
 
-    result = run_with_auth_recovery(_get_recurring_transactions())
+    result = await with_auth_recovery(_get_recurring_transactions())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting transactions summary")
-def get_transactions_summary() -> str:
+async def get_transactions_summary() -> str:
     """Get aggregate transaction summary (count, sum, avg, max, income, expenses)."""
 
     async def _get_transactions_summary():
         client = await _get_monarch_client()
         return await client.get_transactions_summary()
 
-    summary = run_with_auth_recovery(_get_transactions_summary())
+    summary = await with_auth_recovery(_get_transactions_summary())
 
     return json.dumps(summary, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting subscription details")
-def get_subscription_details() -> str:
+async def get_subscription_details() -> str:
     """Get Monarch Money subscription status and details."""
 
     async def _get_subscription_details():
         client = await _get_monarch_client()
         return await client.get_subscription_details()
 
-    details = run_with_auth_recovery(_get_subscription_details())
+    details = await with_auth_recovery(_get_subscription_details())
 
     return json.dumps(details, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting institutions")
-def get_institutions() -> str:
+async def get_institutions() -> str:
     """Get all connected financial institutions and their connection status."""
 
     async def _get_institutions():
         client = await _get_monarch_client()
         return await client.get_institutions()
 
-    institutions = run_with_auth_recovery(_get_institutions())
+    institutions = await with_auth_recovery(_get_institutions())
 
     return json.dumps(institutions, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting cashflow summary")
-def get_cashflow_summary(
+async def get_cashflow_summary(
     limit: int = 100,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -966,7 +983,7 @@ def get_cashflow_summary(
             filters["end_date"] = end_date
         return await client.get_cashflow_summary(limit=limit, **filters)
 
-    summary = run_with_auth_recovery(_get_cashflow_summary())
+    summary = await with_auth_recovery(_get_cashflow_summary())
 
     return json.dumps(summary, indent=2, default=str)
 
@@ -976,7 +993,7 @@ def get_cashflow_summary(
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("setting budget amount")
-def set_budget_amount(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def set_budget_amount(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     amount: float,
     category_id: Optional[str] = None,
     category_group_id: Optional[str] = None,
@@ -1016,14 +1033,14 @@ def set_budget_amount(  # pylint: disable=too-many-arguments,too-many-positional
             kwargs["start_date"] = start_date
         return await client.set_budget_amount(**kwargs)
 
-    result = run_with_auth_recovery(_set_budget_amount())
+    result = await with_auth_recovery(_set_budget_amount())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting transaction splits")
-def get_transaction_splits(transaction_id: str) -> str:
+async def get_transaction_splits(transaction_id: str) -> str:
     """
     Get split information for a transaction.
 
@@ -1035,14 +1052,14 @@ def get_transaction_splits(transaction_id: str) -> str:
         client = await _get_monarch_client()
         return await client.get_transaction_splits(transaction_id)
 
-    splits = run_with_auth_recovery(_get_transaction_splits())
+    splits = await with_auth_recovery(_get_transaction_splits())
 
     return json.dumps(splits, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating transaction splits")
-def update_transaction_splits(
+async def update_transaction_splits(
     transaction_id: str,
     split_data: List[Dict[str, Any]],
 ) -> str:
@@ -1060,14 +1077,14 @@ def update_transaction_splits(
         client = await _get_monarch_client()
         return await client.update_transaction_splits(transaction_id, split_data)
 
-    result = run_with_auth_recovery(_update_transaction_splits())
+    result = await with_auth_recovery(_update_transaction_splits())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction category")
-def create_transaction_category(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def create_transaction_category(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     group_id: str,
     name: str,
     icon: str = "\u2753",
@@ -1102,14 +1119,14 @@ def create_transaction_category(  # pylint: disable=too-many-arguments,too-many-
             )
         return await client.create_transaction_category(**kwargs)
 
-    result = run_with_auth_recovery(_create_transaction_category())
+    result = await with_auth_recovery(_create_transaction_category())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting transaction category")
-def delete_transaction_category(category_id: str) -> str:
+async def delete_transaction_category(category_id: str) -> str:
     """
     Delete a transaction category from Monarch Money.
 
@@ -1121,7 +1138,7 @@ def delete_transaction_category(category_id: str) -> str:
         client = await _get_monarch_client()
         return await client.delete_transaction_category(category_id)
 
-    result = run_with_auth_recovery(_delete_transaction_category())
+    result = await with_auth_recovery(_delete_transaction_category())
 
     return json.dumps(
         {"deleted": True, "category_id": category_id, "result": result},
@@ -1132,7 +1149,7 @@ def delete_transaction_category(category_id: str) -> str:
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating manual account")
-def create_manual_account(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def create_manual_account(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_name: str,
     account_type: str,
     account_sub_type: str,
@@ -1160,14 +1177,14 @@ def create_manual_account(  # pylint: disable=too-many-arguments,too-many-positi
             account_balance=account_balance,
         )
 
-    result = run_with_auth_recovery(_create_manual_account())
+    result = await with_auth_recovery(_create_manual_account())
 
     return json.dumps(result, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating account")
-def update_account(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def update_account(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     account_id: str,
     account_name: Optional[str] = None,
     account_balance: Optional[float] = None,
@@ -1210,7 +1227,7 @@ def update_account(  # pylint: disable=too-many-arguments,too-many-positional-ar
             update_data["hide_transactions_from_reports"] = hide_transactions_from_reports
         return await client.update_account(**update_data)
 
-    result = run_with_auth_recovery(_update_account())
+    result = await with_auth_recovery(_update_account())
 
     return json.dumps(result, indent=2, default=str)
 
@@ -1220,7 +1237,7 @@ def update_account(  # pylint: disable=too-many-arguments,too-many-positional-ar
 
 @mcp.tool()
 @_handle_mcp_errors("getting account history")
-def get_account_history(account_id: str) -> str:
+async def get_account_history(account_id: str) -> str:
     """
     Get historical balance snapshots for an account.
 
@@ -1232,14 +1249,14 @@ def get_account_history(account_id: str) -> str:
         client = await _get_monarch_client()
         return await client.get_account_history(account_id)
 
-    history = run_with_auth_recovery(_get_account_history())
+    history = await with_auth_recovery(_get_account_history())
 
     return json.dumps(history, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting recent account balances")
-def get_recent_account_balances(start_date: Optional[str] = None) -> str:
+async def get_recent_account_balances(start_date: Optional[str] = None) -> str:
     """
     Get daily balance for all accounts from a start date.
 
@@ -1254,14 +1271,14 @@ def get_recent_account_balances(start_date: Optional[str] = None) -> str:
             kwargs["start_date"] = start_date
         return await client.get_recent_account_balances(**kwargs)
 
-    balances = run_with_auth_recovery(_get_recent_account_balances())
+    balances = await with_auth_recovery(_get_recent_account_balances())
 
     return json.dumps(balances, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting account snapshots by type")
-def get_account_snapshots_by_type(start_date: str, timeframe: str) -> str:
+async def get_account_snapshots_by_type(start_date: str, timeframe: str) -> str:
     """
     Get net value snapshots grouped by account type.
 
@@ -1279,14 +1296,14 @@ def get_account_snapshots_by_type(start_date: str, timeframe: str) -> str:
         client = await _get_monarch_client()
         return await client.get_account_snapshots_by_type(start_date, timeframe)
 
-    snapshots = run_with_auth_recovery(_get_account_snapshots_by_type())
+    snapshots = await with_auth_recovery(_get_account_snapshots_by_type())
 
     return json.dumps(snapshots, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting aggregate snapshots")
-def get_aggregate_snapshots(
+async def get_aggregate_snapshots(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     account_type: Optional[str] = None,
@@ -1311,42 +1328,42 @@ def get_aggregate_snapshots(
             kwargs["account_type"] = account_type
         return await client.get_aggregate_snapshots(**kwargs)
 
-    snapshots = run_with_auth_recovery(_get_aggregate_snapshots())
+    snapshots = await with_auth_recovery(_get_aggregate_snapshots())
 
     return json.dumps(snapshots, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting account type options")
-def get_account_type_options() -> str:
+async def get_account_type_options() -> str:
     """Get available account types and sub-types for creating manual accounts."""
 
     async def _get_account_type_options():
         client = await _get_monarch_client()
         return await client.get_account_type_options()
 
-    options = run_with_auth_recovery(_get_account_type_options())
+    options = await with_auth_recovery(_get_account_type_options())
 
     return json.dumps(options, indent=2, default=str)
 
 
 @mcp.tool()
 @_handle_mcp_errors("getting credit history")
-def get_credit_history() -> str:
+async def get_credit_history() -> str:
     """Get credit score history and related details."""
 
     async def _get_credit_history():
         client = await _get_monarch_client()
         return await client.get_credit_history()
 
-    history = run_with_auth_recovery(_get_credit_history())
+    history = await with_auth_recovery(_get_credit_history())
 
     return json.dumps(history, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("deleting account")
-def delete_account(account_id: str) -> str:
+async def delete_account(account_id: str) -> str:
     """
     Delete an account from Monarch Money. This action is irreversible.
 
@@ -1358,7 +1375,7 @@ def delete_account(account_id: str) -> str:
         client = await _get_monarch_client()
         return await client.delete_account(account_id)
 
-    result = run_with_auth_recovery(_delete_account())
+    result = await with_auth_recovery(_delete_account())
 
     return json.dumps(
         {"deleted": True, "account_id": account_id, "result": result},
