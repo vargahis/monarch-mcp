@@ -436,9 +436,11 @@ async def test_needs_review_true(mcp_client, mock_monarch_client):
 async def test_needs_review_false(mcp_client, mock_monarch_client):
     mock_monarch_client.get_transactions.return_value = _wrap([_make_txn(0)])
 
-    assert "error" in result
-    assert "monarchmoneycommunity" in result["error"]
-    mock_monarch_client.get_transactions.assert_not_called()
+    await mcp_client.call_tool("get_transactions", {"needs_review": False})
+
+    mock_monarch_client.get_transactions.assert_called_once_with(
+        limit=100, offset=0, needs_review=False
+    )
 
 
 # ---------------------------------------------------------------------------
