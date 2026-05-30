@@ -202,7 +202,9 @@ Create a tag called "Business Expenses" in red
 | `create_transaction_category` | Create a category | write |
 | `delete_transaction_category` | Delete a category | write |
 | **Rules** | | |
+| `get_transaction_rules` | List auto-categorization rules (id, criteria, target category) | read |
 | `create_transaction_rule` | Create an auto-categorization rule | write |
+| `delete_transaction_rule` | Delete a rule by ID | write |
 | **Budgets & Cashflow** | | |
 | `get_budgets` | Get budget information | read |
 | `get_cashflow` | Get cashflow analysis | read |

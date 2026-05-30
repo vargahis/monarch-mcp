@@ -1,7 +1,9 @@
-"""Tests for create_transaction_rule tool."""
+"""Tests for transaction rule tools (create / get / delete)."""
 # pylint: disable=missing-function-docstring
 
 import json
+
+from gql.transport.exceptions import TransportQueryError
 
 
 # ===================================================================
@@ -300,3 +302,104 @@ async def test_create_rule_both_criteria(mcp_write_client, mock_monarch_client):
     variables = mock_monarch_client.gql_call.call_args[1]["variables"]
     assert "merchantNameCriteria" in variables["input"]
     assert "originalStatementCriteria" in variables["input"]
+
+
+# ===================================================================
+# 12 – get_transaction_rules: slimmed shape
+# ===================================================================
+
+
+async def test_get_rules_slim_shape(mcp_client, mock_monarch_client):
+    mock_monarch_client.gql_call.return_value = {
+        "transactionRules": [
+            {
+                "id": "rule-1",
+                "merchantNameCriteria": [{"operator": "contains", "value": "amazon"}],
+                "originalStatementCriteria": None,
+                "setCategoryAction": {"id": "cat-1", "name": "Shopping"},
+            },
+            {
+                "id": "rule-2",
+                "merchantNameCriteria": None,
+                "originalStatementCriteria": [{"operator": "eq", "value": "rollover"}],
+                "setCategoryAction": {"id": "cat-2", "name": "Transfer"},
+            },
+        ]
+    }
+
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_rules")).content[0].text
+    )
+
+    assert mock_monarch_client.gql_call.call_args[1]["operation"] == "Common_GetTransactionRules"
+    assert result == [
+        {
+            "id": "rule-1",
+            "set_category_id": "cat-1",
+            "set_category_name": "Shopping",
+            "merchant_name_criteria": [{"operator": "contains", "value": "amazon"}],
+            "original_statement_criteria": [],
+        },
+        {
+            "id": "rule-2",
+            "set_category_id": "cat-2",
+            "set_category_name": "Transfer",
+            "merchant_name_criteria": [],
+            "original_statement_criteria": [{"operator": "eq", "value": "rollover"}],
+        },
+    ]
+
+
+# ===================================================================
+# 13 – get_transaction_rules: empty list
+# ===================================================================
+
+
+async def test_get_rules_empty(mcp_client, mock_monarch_client):
+    mock_monarch_client.gql_call.return_value = {"transactionRules": []}
+
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_rules")).content[0].text
+    )
+
+    assert result == []
+
+
+# ===================================================================
+# 14 – delete_transaction_rule: happy path
+# ===================================================================
+
+
+async def test_delete_rule_success(mcp_write_client, mock_monarch_client):
+    # Monarch's payload `deleted` field is unreliable; a successful call (no
+    # exception) means the rule was deleted, so the tool reports deleted: true.
+    mock_monarch_client.gql_call.return_value = {
+        "deleteTransactionRule": {"__typename": "DeleteTransactionRuleMutation"}
+    }
+
+    result = json.loads(
+        (await mcp_write_client.call_tool(
+            "delete_transaction_rule", {"rule_id": "rule-1"}
+        )).content[0].text
+    )
+
+    assert result == {"deleted": True, "rule_id": "rule-1"}
+    call_kwargs = mock_monarch_client.gql_call.call_args[1]
+    assert call_kwargs["operation"] == "Common_DeleteTransactionRuleMutation"
+    assert call_kwargs["variables"] == {"id": "rule-1"}
+
+
+# ===================================================================
+# 15 – delete_transaction_rule: not-found / transport error via decorator
+# ===================================================================
+
+
+async def test_delete_rule_not_found(mcp_write_client, mock_monarch_client):
+    mock_monarch_client.gql_call.side_effect = TransportQueryError("Not found")
+
+    result = (await mcp_write_client.call_tool(
+        "delete_transaction_rule", {"rule_id": "does-not-exist"}
+    )).content[0].text
+
+    assert "Error" in result
+    assert "Not found" in result

@@ -812,6 +812,45 @@ async def create_transaction_rule(  # pylint: disable=too-many-arguments,too-man
     return json.dumps({"created": True, "input": input_data}, indent=2)
 
 
+@mcp.tool(enabled=_WRITE_ENABLED)
+@_handle_mcp_errors("deleting transaction rule")
+async def delete_transaction_rule(rule_id: str) -> str:
+    """
+    Delete a Monarch Money transaction rule by its ID.
+
+    Use get_transaction_rules to look up rule IDs.
+
+    Args:
+        rule_id: The ID of the transaction rule to delete
+    """
+
+    async def _delete_transaction_rule():
+        client = await _get_monarch_client()
+        mutation = gql(
+            """
+            mutation Common_DeleteTransactionRuleMutation($id: ID!) {
+                deleteTransactionRule(id: $id) {
+                    __typename
+                }
+            }
+            """
+        )
+        variables = {"id": rule_id}
+        return await client.gql_call(
+            operation="Common_DeleteTransactionRuleMutation",
+            graphql_query=mutation,
+            variables=variables,
+        )
+
+    # A successful call means the rule was deleted; a missing/invalid id raises
+    # a TransportQueryError ("Not found") that the decorator turns into an error
+    # string. (Monarch's `deleted` payload field is unreliable — it returns false
+    # even on successful deletion — so we don't depend on it.)
+    await with_auth_recovery(_delete_transaction_rule())
+
+    return json.dumps({"deleted": True, "rule_id": rule_id}, indent=2)
+
+
 # ── Phase 2: Read-only tools ──────────────────────────────────────────
 
 
@@ -835,6 +874,69 @@ async def get_transaction_categories() -> str:
             "group_type": (c.get("group") or {}).get("type"),
         }
         for c in categories.get("categories", [])
+    ]
+    return json.dumps(slim, indent=2)
+
+
+@mcp.tool()
+@_handle_mcp_errors("getting transaction rules")
+async def get_transaction_rules() -> str:
+    """Get all transaction rules from Monarch Money.
+
+    Returns each rule's ID, match criteria (merchant name and/or original
+    statement), and the category it assigns. Use the returned ``id`` with
+    delete_transaction_rule.
+
+    Note: Monarch lowercases criteria values, so a rule created to match
+    "Amazon" is stored and returned as "amazon".
+    """
+
+    async def _get_transaction_rules():
+        client = await _get_monarch_client()
+        query = gql(
+            """
+            query Common_GetTransactionRules {
+                transactionRules {
+                    id
+                    merchantNameCriteria {
+                        operator
+                        value
+                    }
+                    originalStatementCriteria {
+                        operator
+                        value
+                    }
+                    setCategoryAction {
+                        id
+                        name
+                    }
+                }
+            }
+            """
+        )
+        return await client.gql_call(
+            operation="Common_GetTransactionRules",
+            graphql_query=query,
+        )
+
+    result = await with_auth_recovery(_get_transaction_rules())
+
+    def _criteria(items):
+        return [
+            {"operator": c.get("operator"), "value": c.get("value")}
+            for c in (items or [])
+        ]
+
+    rules = result.get("transactionRules", []) if isinstance(result, dict) else []
+    slim = [
+        {
+            "id": r.get("id"),
+            "set_category_id": (r.get("setCategoryAction") or {}).get("id"),
+            "set_category_name": (r.get("setCategoryAction") or {}).get("name"),
+            "merchant_name_criteria": _criteria(r.get("merchantNameCriteria")),
+            "original_statement_criteria": _criteria(r.get("originalStatementCriteria")),
+        }
+        for r in rules
     ]
     return json.dumps(slim, indent=2)
 

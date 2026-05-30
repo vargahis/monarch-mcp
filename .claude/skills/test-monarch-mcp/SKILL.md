@@ -1,6 +1,6 @@
 ---
 name: test-monarch-mcp
-description: Systematically test Monarch Money MCP tools in read-only mode (26 tools, 65 tests) or write-enabled mode (all 40 tools, 136 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
+description: Systematically test Monarch Money MCP tools in read-only mode (27 tools, 66 tests) or write-enabled mode (all 42 tools, 140 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
 user_invocable: true
 ---
 
@@ -15,8 +15,8 @@ Run tests across 13 phases, track results, and clean up after yourself.
 
 This test suite supports two modes, auto-detected at startup:
 
-- **Read-only mode** (default): Tests 26 read-only tools (65 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
-- **Write-enabled mode** (`--enable-write`): Tests all 40 tools (136 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
+- **Read-only mode** (default): Tests 27 read-only tools (66 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
+- **Write-enabled mode** (`--enable-write`): Tests all 42 tools (140 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
 
 ---
 
@@ -75,8 +75,8 @@ The state file is `mcp-test-state.json` in the project root.
 }
 ```
 
-In **read-only mode**, `summary.total` is `65` and `original_values` is omitted (no mutations will happen).
-In **write-enabled mode**, `summary.total` is `136`.
+In **read-only mode**, `summary.total` is `66` and `original_values` is omitted (no mutations will happen).
+In **write-enabled mode**, `summary.total` is `140`.
 
 ### Update Cadence
 
@@ -112,11 +112,11 @@ Based on the detected mode, display the appropriate message and **STOP and wait 
 
 ---
 
-**Server is running in read-only mode (26 tools).**
+**Server is running in read-only mode (27 tools).**
 
-I'll run 65 read-only tests and skip 71 write tests. No data will be created, modified, or deleted on your Monarch account.
+I'll run 66 read-only tests and skip 74 write tests. No data will be created, modified, or deleted on your Monarch account.
 
-To test all 136 tests, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`, then restart.
+To test all 140 tests, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`, then restart.
 
 **Proceed with read-only tests?**
 
@@ -126,9 +126,9 @@ To test all 136 tests, disable `monarch-money-read-only` and enable `monarch-mon
 
 ---
 
-**WARNING: Server is running in read-write mode (all 40 tools).**
+**WARNING: Server is running in read-write mode (all 42 tools).**
 
-I'll run all 136 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
+I'll run all 140 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
 
 - It **creates and deletes** transactions, tags, categories, and accounts.
 - It **temporarily modifies** an existing transaction (then reverts it).
@@ -315,15 +315,17 @@ After completing all tests, update state file: `last_completed_phase: 12`, add r
 
 ---
 
-## Phase 13 — Transaction Rules (7 tests)
+## Phase 13 — Transaction Rules (11 tests)
 
 Load and follow: `references/transaction-rules.md`
 
-**Read-only mode:** Skip entire phase (0 tests). All tests require write tools.
+**Read-only mode:** Run test 13.8 only (`get_transaction_rules`). Skip the rest (create/delete require write tools).
 
-Tests `create_transaction_rule` — happy paths, operator variants, backfill flag, and input validation.
+Tests `create_transaction_rule` (happy paths, operator variants, backfill flag, input validation),
+`get_transaction_rules` (list with criteria + IDs), and `delete_transaction_rule` (delete by ID).
 
-> ⚠️ Rules cannot be deleted via the API. Test rules will persist in the account and must be removed manually via the Monarch UI if desired.
+> ✅ Rules **can** now be deleted via the API (`delete_transaction_rule`). Test rules are cleaned up
+> in the cleanup phase. Monarch lowercases criteria values, so created rules appear as `mcp-test-*`.
 
 After completing all tests, update state file: `last_completed_phase: 13`, add results.
 
@@ -397,9 +399,22 @@ delete_account(account_id = {id})
 ```
 Log success/failure for each. Continue on failure.
 
-#### Step 5: Verify Tag Cleanup
+#### Step 4d: Delete Created Rules
+
+Call `get_transaction_rules()`. For every rule whose `merchant_name_criteria` or
+`original_statement_criteria` value contains `mcp-test` (case-insensitive — Monarch lowercases
+values), call:
+```
+delete_transaction_rule(rule_id = {id})
+```
+Log success/failure for each. Continue on failure. (Rule IDs aren't returned by
+`create_transaction_rule`, so they must be discovered via `get_transaction_rules`.)
+
+#### Step 5: Verify Tag & Rule Cleanup
 
 Call `get_transaction_tags()`. Confirm none of the returned tags have names starting with `MCP-Test-`. If any remain, attempt to delete them and warn the user.
+
+Call `get_transaction_rules()`. Confirm no rule has a `mcp-test` criteria value. If any remain, attempt to delete them and warn the user.
 
 #### Step 6: Finalize
 
@@ -429,10 +444,10 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 10 — Read-Only Tools:   9/9  PASS          ║
 ║ Phase 11 — Account Mgmt:      6/6  PASS          ║
 ║ Phase 12 — Analytics:         5/5  PASS          ║
-║ Phase 13 — Rules:             SKIPPED (write)    ║
+║ Phase 13 — Rules:             1/1  PASS          ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 65 passed, 0 failed, 0 skipped           ║
-║ Write tests skipped: 71 (server in read-only)    ║
+║ TOTAL: 66 passed, 0 failed, 0 skipped           ║
+║ Write tests skipped: 74 (server in read-only)    ║
 ╚══════════════════════════════════════════════════╝
 ```
 
@@ -454,9 +469,9 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 10 — Read-Only Tools:   9/9  PASS          ║
 ║ Phase 11 — Account Mgmt:      10/10 PASS         ║
 ║ Phase 12 — Analytics:         5/5  PASS          ║
-║ Phase 13 — Transaction Rules: 7/7  PASS          ║
+║ Phase 13 — Transaction Rules: 11/11 PASS         ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 136 passed, 0 failed, 0 skipped          ║
+║ TOTAL: 140 passed, 0 failed, 0 skipped          ║
 ╚══════════════════════════════════════════════════╝
 ```
 
