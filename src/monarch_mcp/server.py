@@ -52,7 +52,7 @@ mcp = FastMCP("Monarch Money MCP Server")
 
 # ── MCP tool error handling ────────────────────────────────────────────
 
-def _format_mcp_error(operation: str, exc: BaseException) -> str:
+def _format_mcp_error(operation: str, exc: Exception) -> str:
     """Format an exception as a user-readable MCP tool error string.
 
     Centralizes the error-classification logic shared by both the
@@ -714,7 +714,7 @@ async def set_transaction_tags(transaction_id: str, tag_ids: List[str]) -> str:
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction rule")
-def create_transaction_rule(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+async def create_transaction_rule(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     set_category_id: str,
     merchant_name_value: Optional[str] = None,
     merchant_name_operator: str = "contains",
@@ -794,7 +794,7 @@ def create_transaction_rule(  # pylint: disable=too-many-arguments,too-many-posi
             variables=variables,
         )
 
-    result = run_with_auth_recovery(_create_transaction_rule())
+    result = await with_auth_recovery(_create_transaction_rule())
 
     # Surface any API-level errors from the mutation payload.
     # errors can be None (success), a list, or a bare dict — normalise to list.

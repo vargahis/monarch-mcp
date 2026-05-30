@@ -8,7 +8,6 @@ keyring once the user authenticates.
 """
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
 import logging
@@ -182,46 +181,11 @@ def _run_sync(coro):
         loop.close()
 
 
-def run_with_auth_recovery(coro):
-    """Execute an async coroutine, automatically recovering from expired auth.
-
-    Runs the coroutine in a dedicated thread with its own event loop.
-    If the call fails with an authentication error (HTTP 401/403 or
-    ``LoginFailedException``), the stale keyring token is deleted, the
-    browser-based login flow is re-triggered, and a ``RuntimeError`` is
-    raised so the calling MCP tool can inform the user.
-
-    Non-auth exceptions (server errors, network issues, application
-    bugs) propagate unchanged.
-
-    .. deprecated::
-        Prefer :func:`with_auth_recovery` (native async).  Spawning a
-        fresh event loop per tool call breaks aiohttp/gql connection
-        pooling and causes some MCP tools to hang indefinitely when
-        invoked from the FastMCP stdio server.
-    """
-    with ThreadPoolExecutor() as executor:
-        future = executor.submit(_run_sync, coro)
-        try:
-            return future.result()
-        except (TransportServerError, LoginFailedException) as exc:
-            if is_auth_error(exc):
-                logger.warning("Token appears expired — clearing and triggering re-auth")
-                secure_session.delete_token()
-                trigger_auth_flow()
-                raise RuntimeError(
-                    "Your session has expired. A login page has been opened in "
-                    "your browser — please sign in and try again."
-                ) from exc
-            raise
-
-
 async def with_auth_recovery(coro):
     """Await a Monarch coroutine, auto-recovering from expired auth.
 
-    Native-async counterpart of :func:`run_with_auth_recovery` — runs in
-    the caller's event loop (typically the FastMCP server's main loop)
-    so aiohttp/gql connection pooling works correctly across calls.
+    Runs in the caller's event loop (typically the FastMCP server's main
+    loop) so aiohttp/gql connection pooling works correctly across calls.
 
     On HTTP 401/403 or ``LoginFailedException`` recognized by
     :func:`is_auth_error`, the stale keyring token is deleted, the

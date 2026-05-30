@@ -13,7 +13,7 @@ import pytest
 
 from monarch_mcp.server import main
 from monarch_mcp.server import _get_monarch_client
-from monarch_mcp.auth_server import run_with_auth_recovery
+from monarch_mcp.auth_server import with_auth_recovery
 
 
 # ===================================================================
@@ -21,7 +21,7 @@ from monarch_mcp.auth_server import run_with_auth_recovery
 # ===================================================================
 
 
-def test_get_client_env_credentials(monkeypatch):
+async def test_get_client_env_credentials(monkeypatch):
     """When keyring has no token, env credentials trigger login + save."""
     monkeypatch.setenv("MONARCH_EMAIL", "user@test.com")
     monkeypatch.setenv("MONARCH_PASSWORD", "secret123")
@@ -35,14 +35,14 @@ def test_get_client_env_credentials(monkeypatch):
     ):
         mock_ss.get_authenticated_client.return_value = None
 
-        result = run_with_auth_recovery(_get_monarch_client())
+        result = await with_auth_recovery(_get_monarch_client())
 
     assert result is mock_client
     mock_client.login.assert_awaited_once_with("user@test.com", "secret123")
     mock_ss.save_authenticated_session.assert_called_once_with(mock_client)
 
 
-def test_get_client_env_login_failure(monkeypatch):
+async def test_get_client_env_login_failure(monkeypatch):
     """When env login fails, exception propagates."""
     monkeypatch.setenv("MONARCH_EMAIL", "user@test.com")
     monkeypatch.setenv("MONARCH_PASSWORD", "wrong")
@@ -57,10 +57,10 @@ def test_get_client_env_login_failure(monkeypatch):
         mock_ss.get_authenticated_client.return_value = None
 
         with pytest.raises(RuntimeError, match="bad credentials"):
-            run_with_auth_recovery(_get_monarch_client())
+            await with_auth_recovery(_get_monarch_client())
 
 
-def test_get_client_no_credentials(mock_monarch_client, monkeypatch):
+async def test_get_client_no_credentials(mock_monarch_client, monkeypatch):
     """When no keyring token and no env vars, trigger_auth_flow + RuntimeError."""
     with patch("monarch_mcp.secure_session.keyring") as mock_kr:
         mock_kr.get_password.return_value = None
@@ -72,7 +72,7 @@ def test_get_client_no_credentials(mock_monarch_client, monkeypatch):
             patch("monarch_mcp.server.trigger_auth_flow") as mock_auth,
             pytest.raises(RuntimeError, match="Authentication needed"),
         ):
-            run_with_auth_recovery(_get_monarch_client())
+            await with_auth_recovery(_get_monarch_client())
 
         mock_auth.assert_called_once()
 

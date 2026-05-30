@@ -1,4 +1,4 @@
-"""Exception handling tests for run_with_auth_recovery, MCP tool decorator, and auth handlers."""
+"""Exception handling tests for with_auth_recovery, MCP tool decorator, and auth handlers."""
 # pylint: disable=missing-function-docstring,protected-access
 
 from unittest.mock import patch, Mock
@@ -7,15 +7,15 @@ import pytest
 from gql.transport.exceptions import TransportServerError, TransportQueryError, TransportError
 from monarchmoney import LoginFailedException
 
-from monarch_mcp.auth_server import run_with_auth_recovery, _AuthHandler, _AuthState
+from monarch_mcp.auth_server import with_auth_recovery, _AuthHandler, _AuthState
 
 
 # ===================================================================
-# run_with_auth_recovery — narrowed exception handling
+# with_auth_recovery — narrowed exception handling
 # ===================================================================
 
 
-def test_run_async_auth_401_triggers_recovery():
+async def test_with_auth_recovery_401_triggers_recovery():
     """TransportServerError 401 triggers token deletion and re-auth."""
     async def _failing():
         raise TransportServerError("Unauthorized", code=401)
@@ -25,13 +25,13 @@ def test_run_async_auth_401_triggers_recovery():
         patch("monarch_mcp.auth_server.trigger_auth_flow") as mock_auth,
     ):
         with pytest.raises(RuntimeError, match="session has expired"):
-            run_with_auth_recovery(_failing())
+            await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_called_once()
         mock_auth.assert_called_once()
 
 
-def test_run_async_login_failed_triggers_recovery():
+async def test_with_auth_recovery_login_failed_triggers_recovery():
     """LoginFailedException triggers token deletion and re-auth."""
     async def _failing():
         raise LoginFailedException()
@@ -41,13 +41,13 @@ def test_run_async_login_failed_triggers_recovery():
         patch("monarch_mcp.auth_server.trigger_auth_flow") as mock_auth,
     ):
         with pytest.raises(RuntimeError, match="session has expired"):
-            run_with_auth_recovery(_failing())
+            await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_called_once()
         mock_auth.assert_called_once()
 
 
-def test_run_async_non_auth_500_propagates():
+async def test_with_auth_recovery_non_auth_500_propagates():
     """Non-auth TransportServerError (500) propagates without recovery."""
     async def _failing():
         raise TransportServerError("Internal Server Error", code=500)
@@ -57,14 +57,14 @@ def test_run_async_non_auth_500_propagates():
         patch("monarch_mcp.auth_server.trigger_auth_flow") as mock_auth,
     ):
         with pytest.raises(TransportServerError):
-            run_with_auth_recovery(_failing())
+            await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_not_called()
         mock_auth.assert_not_called()
 
 
-def test_run_async_generic_exception_propagates():
-    """Generic exceptions bypass run_with_auth_recovery entirely — not caught."""
+async def test_with_auth_recovery_generic_exception_propagates():
+    """Generic exceptions bypass with_auth_recovery entirely — not caught."""
     async def _failing():
         raise ValueError("something went wrong")
 
@@ -73,14 +73,14 @@ def test_run_async_generic_exception_propagates():
         patch("monarch_mcp.auth_server.trigger_auth_flow") as mock_auth,
     ):
         with pytest.raises(ValueError, match="something went wrong"):
-            run_with_auth_recovery(_failing())
+            await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_not_called()
         mock_auth.assert_not_called()
 
 
-def test_run_async_transport_query_error_propagates():
-    """TransportQueryError is not caught by run_with_auth_recovery."""
+async def test_with_auth_recovery_transport_query_error_propagates():
+    """TransportQueryError is not caught by with_auth_recovery."""
     async def _failing():
         raise TransportQueryError("Invalid query")
 
@@ -89,7 +89,7 @@ def test_run_async_transport_query_error_propagates():
         patch("monarch_mcp.auth_server.trigger_auth_flow") as mock_auth,
     ):
         with pytest.raises(TransportQueryError):
-            run_with_auth_recovery(_failing())
+            await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_not_called()
         mock_auth.assert_not_called()
