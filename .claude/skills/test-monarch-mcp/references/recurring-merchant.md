@@ -51,16 +51,22 @@ update_recurring_merchant(
 
 ## 14.3 — update_recurring_merchant: deactivate the recurrence (write only)
 
+> **Note:** `is_recurring` is **required** on every call. Adjusting an existing recurrence (here,
+> switching it off) keeps `is_recurring=true` and passes only the field being changed — Monarch keeps
+> the rest of the schedule. Omitting `is_recurring` is what produced the opaque "Something went wrong"
+> error before the fix.
+
 **Tool call:**
 ```
 update_recurring_merchant(
-  merchant_id = "{recurring_merchant_id}",
-  name        = "{recurring_merchant_name}",
-  is_active   = false
+  merchant_id  = "{recurring_merchant_id}",
+  name         = "{recurring_merchant_name}",
+  is_recurring = true,
+  is_active    = false
 )
 ```
 
-**Expected:** Response indicates success. The merchant's recurring entry stays defined but is no longer surfaced as an active bill.
+**Expected:** Response indicates success. The merchant's recurring entry stays defined but is no longer surfaced as an active bill (`recurringTransactionStream.isActive` is false).
 
 **Validation:** Response is a non-error JSON object.
 
@@ -71,14 +77,15 @@ update_recurring_merchant(
 **Tool call:**
 ```
 update_recurring_merchant(
-  merchant_id = "{recurring_merchant_id}",
-  name        = "{recurring_merchant_name}",
-  is_active   = true,
-  amount      = -12.49
+  merchant_id  = "{recurring_merchant_id}",
+  name         = "{recurring_merchant_name}",
+  is_recurring = true,
+  is_active    = true,
+  amount       = -12.49
 )
 ```
 
-**Expected:** Response indicates success.
+**Expected:** Response indicates success. The recurrence is active again with the new amount; the unchanged frequency/base_date are preserved by Monarch.
 
 **Validation:** Response is a non-error JSON object.
 

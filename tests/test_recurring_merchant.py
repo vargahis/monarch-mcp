@@ -3,6 +3,9 @@
 
 import json
 
+import pytest
+from fastmcp.exceptions import ToolError
+
 
 SAMPLE_TRANSACTIONS = {
     "allTransactions": {
@@ -125,11 +128,15 @@ async def test_update_recurring_merchant_deactivate(mcp_write_client, mock_monar
         "updateMerchant": {"merchant": {"id": "m-2", "name": "OldSub"}, "errors": None}
     }
 
+    # Switching a bill off is a partial edit, but ``is_recurring`` must still be
+    # stated — Monarch rejects a recurrence change that omits it. The unchanged
+    # schedule fields stay None and Monarch keeps the existing stream values.
     await mcp_write_client.call_tool(
         "update_recurring_merchant",
         {
             "merchant_id": "m-2",
             "name": "OldSub",
+            "is_recurring": True,
             "is_active": False,
         },
     )
@@ -137,12 +144,24 @@ async def test_update_recurring_merchant_deactivate(mcp_write_client, mock_monar
     mock_monarch_client.update_reoccuring.assert_called_once_with(
         merchant_id="m-2",
         name="OldSub",
-        is_recurring=None,
+        is_recurring=True,
         frequency=None,
         base_date=None,
         amount=None,
         is_active=False,
     )
+
+
+async def test_update_recurring_merchant_requires_is_recurring(mcp_write_client, mock_monarch_client):
+    # ``is_recurring`` is mandatory: Monarch rejects any recurrence change that
+    # omits it, so the tool surfaces a missing-argument error before any call.
+    with pytest.raises(ToolError, match="is_recurring"):
+        await mcp_write_client.call_tool(
+            "update_recurring_merchant",
+            {"merchant_id": "m-2", "name": "OldSub", "is_active": False},
+        )
+
+    mock_monarch_client.update_reoccuring.assert_not_called()
 
 
 async def test_update_recurring_merchant_disabled_in_read_only(mcp_client, mock_monarch_client):  # pylint: disable=unused-argument

@@ -1061,7 +1061,7 @@ async def find_merchant_id_by_name(
 async def update_recurring_merchant(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     merchant_id: str,
     name: str,
-    is_recurring: Optional[bool] = None,
+    is_recurring: bool,
     frequency: Optional[str] = None,
     base_date: Optional[str] = None,
     amount: Optional[float] = None,
@@ -1071,22 +1071,31 @@ async def update_recurring_merchant(  # pylint: disable=too-many-arguments,too-m
 
     The Monarch UI's "recurring transactions" list is backed by a
     per-merchant ``recurringTransactionStream``.  This tool wraps the
-    library's ``update_reoccuring`` mutation so callers can:
+    library's ``update_reoccuring`` mutation.  ``is_recurring`` is
+    **required** on every call: Monarch rejects a recurrence change that
+    doesn't state it, so it must always be passed.
 
-    - mark a merchant as recurring (``is_recurring=True``) and set its
-      frequency / base date / amount,
-    - update an existing recurrence's amount or schedule,
-    - deactivate a stale recurrence (``is_active=False``) — the entry
-      stays in the merchant record but stops surfacing as a bill,
-    - clear the recurring flag entirely (``is_recurring=False``).
+    - **Mark recurring / set the full schedule** — ``is_recurring=True``
+      with ``frequency`` / ``base_date`` / ``amount``.
+    - **Adjust an existing recurrence** (change the amount, or switch it
+      on/off) — keep ``is_recurring=True`` and pass only the field you are
+      changing; Monarch keeps the rest of the schedule. Omitting
+      ``is_recurring`` here is what produced the opaque
+      "Something went wrong" error, hence it is now mandatory.
+    - **Deactivate without deleting** — ``is_recurring=True,
+      is_active=False`` keeps the recurrence defined but stops surfacing it
+      as a bill.
+    - **Clear the recurring flag entirely** — ``is_recurring=False``.
 
     Args:
         merchant_id: Monarch merchant ID (use ``find_merchant_id_by_name``).
         name: Merchant display name (required by Monarch's mutation).
-        is_recurring: True to mark recurring, False to unmark.
+        is_recurring: Required. True to mark/keep recurring, False to unmark.
         frequency: Recurrence cadence — e.g. ``monthly``, ``weekly``,
-            ``biweekly``, ``yearly``.
-        base_date: Recurrence anchor date in YYYY-MM-DD format.
+            ``biweekly``, ``yearly``. Optional when adjusting an existing
+            recurrence (Monarch keeps the current cadence).
+        base_date: Recurrence anchor date in YYYY-MM-DD format. Optional
+            when adjusting an existing recurrence.
         amount: Expected recurring amount (negative for expenses).
         is_active: True to surface as an upcoming bill; False to keep
             the recurrence definition but stop showing it.

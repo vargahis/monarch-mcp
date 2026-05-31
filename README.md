@@ -192,7 +192,7 @@ Create a tag called "Business Expenses" in red
 | `update_transaction` | Update existing transaction | write |
 | `delete_transaction` | Delete a transaction | write |
 | `update_transaction_splits` | Create/modify/delete splits | write |
-| `update_recurring_merchant` | Mark/unmark a merchant as recurring, update its frequency/amount, or deactivate it (requires `--enable-write`) | write |
+| `update_recurring_merchant` | Mark/unmark a merchant as recurring, update its frequency/amount, or deactivate it — `is_recurring` is required on every call (requires `--enable-write`) | write |
 | **Tags** | | |
 | `get_transaction_tags` | Get all tags | read |
 | `create_transaction_tag` | Create new tag | write |
