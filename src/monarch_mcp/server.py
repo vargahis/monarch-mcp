@@ -25,6 +25,10 @@ from monarch_mcp.transaction_rules import (
     DELETE_RULE_MUTATION,
     GET_RULES_QUERY,
     UPDATE_RULE_MUTATION,
+    CreateTransactionRuleInput,
+    UpdateTransactionRuleInput,
+    extract_payload_errors,
+    normalize_rule,
     rule_to_update_input,
 )
 
@@ -930,11 +934,15 @@ async def update_recurring_merchant(  # pylint: disable=too-many-arguments,too-m
 async def get_transaction_rules() -> str:
     """List every transaction rule on the household.
 
-    Returns the full ``transactionRules`` array as exposed by Monarch's
-    web app, including ordering, criteria, actions, recent application
-    counts, and last-applied timestamps.  Use the rule IDs from this
-    list when calling ``update_transaction_rule`` or
-    ``delete_transaction_rule``.
+    Returns each rule flattened to a clean shape: its ``id``, the category
+    it sets, all match criteria (merchant name / original statement /
+    merchant / amount), the actions it applies (tags, merchant rename,
+    goals, splits, review status), and application stats
+    (``recent_application_count``, ``last_applied_at``). Use the ``id``
+    values with ``update_transaction_rule`` or ``delete_transaction_rule``.
+
+    Note: Monarch lowercases criteria values, so a rule created to match
+    "Amazon" is stored and returned as "amazon".
     """
 
     async def _get_transaction_rules():
@@ -946,72 +954,70 @@ async def get_transaction_rules() -> str:
         )
 
     result = await with_auth_recovery(_get_transaction_rules())
-    return json.dumps(result, indent=2, default=str)
+    rules = result.get("transactionRules", []) if isinstance(result, dict) else []
+    return json.dumps([normalize_rule(r) for r in rules], indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("creating transaction rule")
-async def create_transaction_rule(rule_input: Dict[str, Any]) -> str:
-    """Create a new transaction rule.
+async def create_transaction_rule(rule: CreateTransactionRuleInput) -> str:
+    """Create a transaction rule (criteria + actions).
 
-    ``rule_input`` is passed through to the
-    ``Common_CreateTransactionRuleMutationV2`` mutation as the
-    ``input`` variable.  At least one action field must be supplied
-    (e.g. ``setMerchantAction``, ``setCategoryAction``,
-    ``addTagsAction``, ``reviewStatusAction``,
-    ``splitTransactionsAction``).
+    Provide at least one criterion and at least one action. Examples:
 
-    Common input fields:
+    - Category rule: ``merchant_name_criteria=[{"operator": "contains",
+      "value": "Amazon"}]`` + ``set_category_action="<category_id>"``.
+    - Tagging rule: also pass ``add_tags_action=["<tag_id>", ...]``.
+    - Merchant rename: ``set_merchant_action="New Name"``.
+    - Amount rule: ``amount_criteria={"operator": "gt", "isExpense": true,
+      "value": 100}``.
+    - Split rule: ``split_transactions_action={"amountType": "...",
+      "splitsInfo": [...]}``.
 
-    - ``merchantCriteria`` / ``merchantNameCriteria`` /
-      ``originalStatementCriteria`` — list of ``{operator, value}``.
-    - ``amountCriteria`` — ``{operator, isExpense, value, valueRange}``.
-    - ``categoryIds`` / ``accountIds`` — list of IDs.
-    - ``setMerchantAction`` — merchant *name* string.
-    - ``setCategoryAction`` — category id string.
-    - ``addTagsAction`` — list of tag id strings.
-    - ``linkGoalAction`` / ``linkSavingsGoalAction`` — goal id string.
-    - ``reviewStatusAction`` — e.g. ``"reviewed"``.
-    - ``splitTransactionsAction`` — split structure with ``splitsInfo``.
-    - ``applyToExistingTransactions`` — boolean.
-
-    Args:
-        rule_input: The ``CreateTransactionRuleInput`` payload.
+    Set ``apply_to_existing_transactions=true`` to also re-apply to past
+    transactions. Field names follow Monarch's schema (camelCase aliases
+    are accepted too).
     """
+    input_data = rule.model_dump(by_alias=True, exclude_none=True)
 
     async def _create_transaction_rule():
         client = await _get_monarch_client()
         return await client.gql_call(
             operation="Common_CreateTransactionRuleMutationV2",
             graphql_query=gql(CREATE_RULE_MUTATION),
-            variables={"input": rule_input},
+            variables={"input": input_data},
         )
 
     result = await with_auth_recovery(_create_transaction_rule())
-    return json.dumps(result, indent=2, default=str)
+    errors = extract_payload_errors(result, "createTransactionRuleV2")
+    if errors:
+        return json.dumps(
+            {"error": errors[0].get("message", "Unknown error"), "errors": errors},
+            indent=2,
+            default=str,
+        )
+    return json.dumps({"created": True, "input": input_data}, indent=2, default=str)
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("updating transaction rule")
 async def update_transaction_rule(
     rule_id: str,
-    overrides: Dict[str, Any],
+    overrides: UpdateTransactionRuleInput,
 ) -> str:
-    """Update an existing transaction rule (REPLACE semantics).
+    """Update an existing transaction rule (handles REPLACE semantics).
 
     Monarch's ``updateTransactionRuleV2`` mutation has *replace*
     semantics — any field omitted from the input is reset to ``null``
-    server-side.  To avoid accidentally clobbering criteria/actions,
-    this tool first calls ``GetTransactionRules`` to fetch the
-    existing rule, then layers ``overrides`` on top via
-    :func:`rule_to_update_input`, and finally issues the mutation
-    with the merged payload.
+    server-side. To avoid clobbering the rest of the rule, this tool
+    fetches the current rule, layers only the fields you set in
+    ``overrides`` on top, and submits the merged payload. So to change
+    just the category, pass ``overrides={"set_category_action":
+    "<category_id>"}`` and the criteria/tags/etc. are preserved.
 
     Args:
-        rule_id: The ID of the rule to update.
-        overrides: Partial ``UpdateTransactionRuleInput`` — only the
-            fields to change.  Any field in ``RULE_INPUT_FIELDS`` is
-            accepted.
+        rule_id: The ID of the rule to update (see get_transaction_rules).
+        overrides: Only the fields to change.
     """
 
     async def _fetch_rules():
@@ -1028,10 +1034,11 @@ async def update_transaction_rule(
     if target is None:
         raise RuntimeError(
             f"Transaction rule {rule_id!r} not found; "
-            f"call get_transaction_rules to list valid IDs.",
+            f"call get_transaction_rules to list valid IDs."
         )
 
-    payload = rule_to_update_input(target, overrides or {})
+    override_data = overrides.model_dump(by_alias=True, exclude_unset=True)
+    payload = rule_to_update_input(target, override_data)
 
     async def _update_rule():
         client = await _get_monarch_client()
@@ -1042,7 +1049,16 @@ async def update_transaction_rule(
         )
 
     result = await with_auth_recovery(_update_rule())
-    return json.dumps(result, indent=2, default=str)
+    errors = extract_payload_errors(result, "updateTransactionRuleV2")
+    if errors:
+        return json.dumps(
+            {"error": errors[0].get("message", "Unknown error"), "errors": errors},
+            indent=2,
+            default=str,
+        )
+    return json.dumps(
+        {"updated": True, "rule_id": rule_id, "input": payload}, indent=2, default=str
+    )
 
 
 @mcp.tool(enabled=_WRITE_ENABLED)
@@ -1050,10 +1066,12 @@ async def update_transaction_rule(
 async def delete_transaction_rule(rule_id: str) -> str:
     """Delete a transaction rule by ID.
 
-    Quirk: Monarch's server returns ``deleted: false`` even on
-    successful deletes.  This tool treats the response as successful
-    unless the ``errors`` payload is populated; do not interpret the
-    ``deleted: false`` flag as a failure.
+    Use get_transaction_rules to look up rule IDs.
+
+    Quirk: Monarch returns ``deleted: false`` even on a successful
+    delete, so this tool treats the call as successful unless the
+    ``errors`` payload is populated (an invalid id surfaces as an error
+    string via the decorator).
 
     Args:
         rule_id: The ID of the rule to delete.
@@ -1068,7 +1086,14 @@ async def delete_transaction_rule(rule_id: str) -> str:
         )
 
     result = await with_auth_recovery(_delete_transaction_rule())
-    return json.dumps(result, indent=2, default=str)
+    errors = extract_payload_errors(result, "deleteTransactionRule")
+    if errors:
+        return json.dumps(
+            {"error": errors[0].get("message", "Unknown error"), "errors": errors},
+            indent=2,
+            default=str,
+        )
+    return json.dumps({"deleted": True, "rule_id": rule_id}, indent=2)
 
 
 @mcp.tool()
