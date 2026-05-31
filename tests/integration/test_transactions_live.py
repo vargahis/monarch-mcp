@@ -40,7 +40,10 @@ async def test_create_transaction_happy_path_and_cleanup(
     )
     assert txn_id, f"expected a created transaction id, got: {result}"
     try:
-        assert "MCP-Test-Coffee-Shop" in json.dumps(result)
+        details = await call_json(
+            live_write_client, "get_transaction_details", {"transaction_id": txn_id}
+        )
+        assert "MCP-Test-Coffee-Shop" in json.dumps(details)
     finally:
         deleted = await call_json(
             live_write_client, "delete_transaction", {"transaction_id": txn_id}
