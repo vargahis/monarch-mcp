@@ -1,6 +1,6 @@
 ---
 name: test-monarch-mcp
-description: Systematically test Monarch Money MCP tools in read-only mode (28 tools, 58 tests) or write-enabled mode (all 44 tools, 109 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode). Batches each phase into a subagent so large tool payloads stay out of the orchestrator's context.
+description: Systematically test Monarch Money MCP tools in read-only mode (27 tools, 58 tests) or write-enabled mode (all 44 tools, 109 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode). Batches each phase into a subagent so large tool payloads stay out of the orchestrator's context.
 user_invocable: true
 ---
 
@@ -28,7 +28,7 @@ Run tests across 14 phases, track results, and clean up after yourself.
 
 This test suite supports two modes, auto-detected at startup:
 
-- **Read-only mode** (default): Tests 28 read-only tools (58 tests). Write-dependent tests are
+- **Read-only mode** (default): Tests 27 read-only tools (58 tests). Write-dependent tests are
   skipped. No data is created, modified, or deleted.
 - **Write-enabled mode** (`--enable-write`): Tests all 44 tools (109 tests). Creates, modifies, and
   deletes data on your live Monarch account. Self-cleaning.
@@ -123,7 +123,7 @@ Use the Task tool (subagent type: `general-purpose`). The prompt you pass must c
 | 10 | Read-Only Tools | `references/read-only-tools.md` | all (12) | no |
 | 11 | Account Management | `references/account-management.md` | 11.1, 11.6-alt, 11.7–11.10 | yes |
 | 12 | Analytics | `references/analytics-tools.md` | all (5) | no |
-| 13 | Transaction Rules | `references/transaction-rules.md` | 13.7 | yes |
+| 13 | Transaction Rules | `references/transaction-rules.md` | 13.6 | yes |
 | 14 | Recurring Merchant Management | `references/recurring-merchant.md` | 14.1 | yes |
 
 > **Phase 11 read-only note:** run **11.6-alt** instead of 11.6 — it calls `get_account_history` with
@@ -238,7 +238,7 @@ approval**:
 
 ---
 
-**Server is running in read-only mode (28 tools).**
+**Server is running in read-only mode (27 tools).**
 
 I'll run 58 read-only tests and skip 51 write tests. No data will be created, modified, or deleted on
 your Monarch account.
