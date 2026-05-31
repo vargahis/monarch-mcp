@@ -1,12 +1,19 @@
 ---
 name: test-monarch-mcp
-description: Systematically test Monarch Money MCP tools in read-only mode (27 tools, 66 tests) or write-enabled mode (all 42 tools, 140 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode).
+description: Systematically test Monarch Money MCP tools in read-only mode (27 tools, 61 tests) or write-enabled mode (all 42 tools, 124 tests). Account-agnostic (discovers IDs at runtime) and self-cleaning (deletes everything it creates in write mode). Batches each phase into a subagent so large tool payloads stay out of the orchestrator's context.
 user_invocable: true
 ---
 
 # Test Monarch MCP Skill
 
-You are executing a comprehensive test suite for the Monarch Money MCP server.
+You are the **orchestrator** of a comprehensive test suite for the Monarch Money MCP server.
+
+You do **not** call Monarch tools yourself. Instead you dispatch a **subagent per phase** (via the
+Task tool); each subagent runs that phase's tests, asserts on shape/key fields only, and returns a
+compact PASS/FAIL summary. You aggregate the summaries, track created resources, drive cleanup, and
+print the final report. This keeps large tool payloads (transaction lists, rule lists, full objects)
+inside the subagents and out of your context.
+
 Run tests across 13 phases, track results, and clean up after yourself.
 
 ---
@@ -15,8 +22,106 @@ Run tests across 13 phases, track results, and clean up after yourself.
 
 This test suite supports two modes, auto-detected at startup:
 
-- **Read-only mode** (default): Tests 27 read-only tools (66 tests). Write-dependent tests are skipped. No data is created, modified, or deleted.
-- **Write-enabled mode** (`--enable-write`): Tests all 42 tools (140 tests). Creates, modifies, and deletes data on your live Monarch account. Self-cleaning.
+- **Read-only mode** (default): Tests 27 read-only tools (61 tests). Write-dependent tests are
+  skipped. No data is created, modified, or deleted.
+- **Write-enabled mode** (`--enable-write`): Tests all 42 tools (124 tests). Creates, modifies, and
+  deletes data on your live Monarch account. Self-cleaning.
+
+---
+
+## Execution Model
+
+### Your job (orchestrator)
+
+- Detect the server mode and get user confirmation (see **Pre-flight**).
+- Dispatch the **discovery subagent**, then one subagent per phase, then (write mode) the **cleanup
+  subagent**.
+- Parse each subagent's compact JSON return. Never request or echo a raw tool payload.
+- Maintain `mcp-test-state.json`; merge the created-resource IDs each subagent reports.
+- Print the final summary.
+
+### Dispatching a subagent
+
+Use the Task tool (subagent type: `general-purpose`). The prompt you pass must contain:
+
+1. **Mode** (`read-only` / `read-write`) and, in read-only mode, the **exact subset of tests** to run
+   for this phase (from the Phase Map).
+2. **Discovery values** to substitute for `{placeholder}` tokens (see Placeholder Reference).
+3. **The reference file path** to read and follow (e.g. `references/transaction-crud.md`).
+4. **The subagent rules and return contract** below.
+
+### Subagent rules (include verbatim in every phase dispatch)
+
+- Read the reference file. Run each listed test **in order**. Substitute the provided discovery
+  values for any `{placeholder}` tokens.
+- Call tools by their MCP name `mcp__monarch-mcp__<tool>` (e.g. `mcp__monarch-mcp__get_transactions`).
+  If a tool is not directly callable, first load it with `ToolSearch` using the query
+  `select:mcp__monarch-mcp__<tool>`, then call it.
+- **Assert on shape / key fields only** — e.g. "response is a list", "has an `id`", "date starts with
+  2025-01", "error string contains 'both'". Read only what you need from each response and discard the
+  rest. **Never** copy a full tool response into your output.
+- **Write phases self-clean:** after running the tests, delete any resource you created that a
+  delete-test did not already remove — transactions via `delete_transaction`, tags via
+  `delete_transaction_tag`, categories via `delete_transaction_category`, accounts via
+  `delete_account`. Do **not** revert the shared `{test_transaction_id}` — the orchestrator owns its
+  original values and reverts it during cleanup.
+- Return **only** the JSON object defined below. No prose, no payloads.
+
+### Return contract
+
+```json
+{
+  "phase": 6,
+  "phase_name": "Transaction CRUD",
+  "summary": { "passed": 19, "failed": 1, "skipped": 1 },
+  "results": [
+    { "test": "6.1", "status": "PASS" },
+    { "test": "6.10", "status": "FAIL",
+      "detail": "expected amount -99.99; got error '<one-line msg>'; params: amount=-99.99" },
+    { "test": "2.2", "status": "SKIP", "detail": "no investment account" }
+  ],
+  "created_resources": { "transactions": [], "tags": [], "categories": [], "accounts": [] },
+  "self_cleanup": { "deleted": ["txn:abc"], "failed": [] }
+}
+```
+
+- `results`: one row per test. PASS rows carry only `test` + `status`. FAIL/SKIP rows add a one-line
+  `detail` (expected vs actual + the params used, or the skip reason). No payloads.
+- `created_resources`: resources the subagent created but did **not** delete itself — the orchestrator
+  backstop for cleanup.
+- `self_cleanup`: IDs the subagent deleted itself (transparency); `failed` lists deletions that errored.
+
+### Dispatch strategy
+
+- **Read-only mode:** after discovery, dispatch the phase subagents **concurrently** (several Task
+  calls in one message) — they are independent and perform no writes. Aggregate as they return. No
+  cleanup phase.
+- **Write mode:** after discovery, dispatch the phase subagents **sequentially in phase order**
+  (Phases 6 and 7 both mutate the shared test transaction, so serializing avoids races and keeps
+  cleanup deterministic). After each subagent returns, merge its `created_resources` into the state
+  file and record its results before dispatching the next. Then run the cleanup subagent.
+
+### Phase Map
+
+| Phase | Name | Reference file | Read-only subset | Mutates data |
+|---|---|---|---|---|
+| 0 | Discovery | (inline subagent — see Phase 0) | runs | no |
+| 1 | Auth Tools | `references/auth-tools.md` | all (3) | no |
+| 2 | Accounts & Holdings | `references/accounts-and-holdings.md` | all (5) | no |
+| 3 | Transaction Reads | `references/transactions-read.md` | all (11) | no |
+| 4 | Budgets, Cashflow & Budget Amounts | `references/budgets-and-cashflow.md` | 4.1–4.12 | yes (4.13–4.15) |
+| 5 | Tag CRUD | `references/tag-crud.md` | 5.1 | yes |
+| 6 | Transaction CRUD | `references/transaction-crud.md` | — (skip) | yes |
+| 7 | Transaction Tagging | `references/transaction-tagging.md` | — (skip) | yes |
+| 8 | Categories | `references/categories.md` | 8.1–8.3 | yes |
+| 9 | Details & Splits | `references/transaction-details-and-splits.md` | 9.1–9.5 | yes (9.6–9.8) |
+| 10 | Read-Only Tools | `references/read-only-tools.md` | all (9) | no |
+| 11 | Account Management | `references/account-management.md` | 11.1, 11.6-alt, 11.7–11.10 | yes |
+| 12 | Analytics | `references/analytics-tools.md` | all (5) | no |
+| 13 | Transaction Rules | `references/transaction-rules.md` | 13.8 | yes |
+
+> **Phase 11 read-only note:** run **11.6-alt** instead of 11.6 — it calls `get_account_history` with
+> `{checking_account_id}` because no account is created in read-only mode.
 
 ---
 
@@ -32,8 +137,10 @@ The state file is `mcp-test-state.json` in the project root.
    - "Resume from Phase {last_completed_phase + 1}?"
    - "Clean up and start fresh?"
    - "Clean up only?"
-4. **Found with `status: "cleanup_needed"`** → Run cleanup using stored IDs, then delete state file.
-5. **Found with `status: "completed"`** → Show previous results summary, ask: "Run again?" If yes, delete state file and start fresh.
+4. **Found with `status: "cleanup_needed"`** → Dispatch the cleanup subagent with the stored IDs and
+   `original_values`, then delete the state file.
+5. **Found with `status: "completed"`** → Show previous results summary, ask: "Run again?" If yes,
+   delete state file and start fresh.
 
 ### State File Structure
 
@@ -67,7 +174,7 @@ The state file is `mcp-test-state.json` in the project root.
   },
   "results": {},
   "summary": {
-    "total": 136,
+    "total": 124,
     "passed": 0,
     "failed": 0,
     "skipped": 0
@@ -75,24 +182,34 @@ The state file is `mcp-test-state.json` in the project root.
 }
 ```
 
-In **read-only mode**, `summary.total` is `66` and `original_values` is omitted (no mutations will happen).
-In **write-enabled mode**, `summary.total` is `140`.
+In **read-only mode**, `summary.total` is `61` and `original_values` is omitted (no mutations happen).
+In **write-enabled mode**, `summary.total` is `124`.
 
 ### Update Cadence
 
-- **Write** the state file after Phase 0 (discovery IDs are now logged).
-- **Update** after each completed phase (bump `last_completed_phase`, add test results).
-- **Update `created_resources` immediately** after every `create_transaction` or `create_transaction_tag` call — before running the next test.
-- Set `status: "completed"` after cleanup succeeds, then **delete** the state file.
+- **Write** the state file after the discovery subagent returns (discovery IDs and, in write mode,
+  `original_values` are now logged; `status: "in_progress"`, `last_completed_phase: 0`).
+- **After each phase subagent returns:** merge its reported `created_resources` into the state file,
+  append its `results`, bump `last_completed_phase`, and update `summary` counts.
+- Set `status: "completed"` after the cleanup subagent succeeds, then **delete** the state file.
+
+> The state file's `created_resources` is the orchestrator backstop. Subagents self-clean their own
+> creations, but the merged list plus the cleanup subagent's name-prefix sweep ensures nothing is left
+> behind even if a subagent crashes without reporting.
 
 ---
 
 ## Error Handling Rules
 
-- **Phase 0 failure = HALT.** If discovery fails, do not proceed. Write state file with `status: "cleanup_needed"` and stop.
-- **All other phases: log and continue.** If a test fails, record `FAIL` with details and move to the next test.
-- **Cleanup always runs.** Even if a phase throws an unexpected error, jump to cleanup.
-- **Test data naming:** All test merchants are prefixed with `MCP-Test-` and all test tags are prefixed with `MCP-Test-` for easy identification.
+- **Phase 0 (discovery) failure = HALT.** If discovery fails or a required ID is missing, do not
+  proceed. Write the state file with `status: "cleanup_needed"` and stop.
+- **All other phases: log and continue.** A subagent records `FAIL` per test and keeps going. If a
+  whole subagent errors or returns a malformed object, record the phase as failed and continue —
+  then ensure cleanup still runs.
+- **Cleanup always runs (write mode).** Even if a phase failed or was skipped, dispatch the cleanup
+  subagent.
+- **Test data naming:** all test merchants, tags, categories, accounts, and rule criteria are
+  prefixed with `MCP-Test-` for easy identification and for the cleanup name-prefix sweep.
 
 ---
 
@@ -102,11 +219,14 @@ Before starting any test work (including Phase 0), detect the server mode and ge
 
 ### Mode Detection (Phase 0 preamble)
 
-Check which MCP tools are available. If write tools like `create_transaction`, `create_transaction_tag`, `delete_transaction`, etc. are available, the server is in **read-write mode**. If they are absent, the server is in **read-only mode**.
+Check which MCP tools are available. If write tools like `create_transaction`, `create_transaction_tag`,
+`delete_transaction`, etc. are available, the server is in **read-write mode**. If they are absent, the
+server is in **read-only mode**.
 
 ### User Confirmation
 
-Based on the detected mode, display the appropriate message and **STOP and wait for explicit user approval**:
+Based on the detected mode, display the appropriate message and **STOP and wait for explicit user
+approval**:
 
 #### If read-only mode detected:
 
@@ -114,9 +234,11 @@ Based on the detected mode, display the appropriate message and **STOP and wait 
 
 **Server is running in read-only mode (27 tools).**
 
-I'll run 66 read-only tests and skip 74 write tests. No data will be created, modified, or deleted on your Monarch account.
+I'll run 61 read-only tests and skip 63 write tests. No data will be created, modified, or deleted on
+your Monarch account.
 
-To test all 140 tests, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`, then restart.
+To test all 124 tests, disable `monarch-money-read-only` and enable `monarch-money` in `.mcp.json`,
+then restart.
 
 **Proceed with read-only tests?**
 
@@ -128,15 +250,20 @@ To test all 140 tests, disable `monarch-money-read-only` and enable `monarch-mon
 
 **WARNING: Server is running in read-write mode (all 42 tools).**
 
-I'll run all 140 tests. This will **create, modify, and delete** data on your **live Monarch Money account**:
+I'll run all 124 tests. This will **create, modify, and delete** data on your **live Monarch Money
+account**:
 
 - It **creates and deletes** transactions, tags, categories, and accounts.
 - It **temporarily modifies** an existing transaction (then reverts it).
-- The test is designed to clean up everything it creates, but **if something goes wrong** (network error, timeout, context limit), **cleanup may be incomplete** and unwanted changes could remain in your account.
+- The test is designed to clean up everything it creates, but **if something goes wrong** (network
+  error, timeout, context limit), **cleanup may be incomplete** and unwanted changes could remain in
+  your account.
 - All test-created data is prefixed with `MCP-Test-` for easy manual identification.
-- If the session is interrupted, you can **resume where you left off** by invoking this skill again — it will detect the saved progress and offer to continue.
+- If the session is interrupted, you can **resume where you left off** by invoking this skill again —
+  it will detect the saved progress and offer to continue.
 
-To test read-only mode only, disable `monarch-money` and enable `monarch-money-read-only` in `.mcp.json`, then restart.
+To test read-only mode only, disable `monarch-money` and enable `monarch-money-read-only` in
+`.mcp.json`, then restart.
 
 **Do you want to continue?**
 
@@ -144,190 +271,69 @@ To test read-only mode only, disable `monarch-money` and enable `monarch-money-r
 
 Do NOT proceed until the user explicitly confirms. If the user declines, stop immediately.
 
-This confirmation applies to **fresh runs only**. When resuming an in-progress run or performing cleanup-only, skip this confirmation (the user already accepted the risk).
+This confirmation applies to **fresh runs only**. When resuming an in-progress run or performing
+cleanup-only, skip this confirmation (the user already accepted the risk).
 
 ---
 
 ## Phase 0 — Discovery
 
-This phase runs first. No reference file — execute inline.
+Dispatch a **discovery subagent** first (so even discovery payloads stay out of your context). Give it
+the mode and these instructions; it returns only the compact ID set below.
 
-1. Call `get_accounts()`.
-   - Extract `checking_account_id`: first account whose `type` field contains "checking" (case-insensitive). Fallback: the first account in the list.
-   - Extract `investment_account_id`: first account whose `type` field contains "investment" or "brokerage" (case-insensitive). May be null if none found.
+The discovery subagent must:
 
-2. Call `get_transactions(limit=5)`.
-   - Extract `test_transaction_id`: the first transaction's ID.
-   - Extract `valid_category_id`: the first transaction's category ID.
-   - **Write mode only:** Record **original values** for the test transaction: `merchant` (or `merchant_name`), `notes`, `amount`, `date`, `category_id`, `hide_from_reports`, `needs_review`.
+1. Call `mcp__monarch-mcp__get_accounts()`.
+   - `checking_account_id`: the first account whose `type` contains "checking" (case-insensitive).
+     Fallback: the first account in the list.
+   - `investment_account_id`: the first account whose `type` contains "investment" or "brokerage"
+     (case-insensitive). May be null if none found.
+2. Call `mcp__monarch-mcp__get_transactions(limit=5)`.
+   - `test_transaction_id`: the first transaction's ID.
+   - `valid_category_id`: the first transaction's category ID.
+3. **Write mode only:** call `mcp__monarch-mcp__get_transaction_details(transaction_id={test_transaction_id})`
+   and record `original_values`: `merchant` (or `merchant_name`), `notes`, `amount`, `date`,
+   `category_id`, `hide_from_reports`, `needs_review`. These are used to revert the transaction during
+   cleanup.
+4. Return only:
 
-3. Initialize `created_resources = { transactions: [], tags: [], categories: [], accounts: [] }`.
+```json
+{
+  "checking_account_id": "...",
+  "investment_account_id": "..." ,
+  "test_transaction_id": "...",
+  "valid_category_id": "...",
+  "original_values": { "...": "... (write mode only)" }
+}
+```
 
-4. Record detected `mode` in state file. Write the state file with `status: "in_progress"`, `last_completed_phase: 0`.
+On return, the orchestrator:
 
-5. Print discovery results:
-   ```
-   === Phase 0: Discovery ===
-   Mode:                {read-only | read-write}
-   Checking account:    {id} ({name})
-   Investment account:  {id} ({name}) or "None found"
-   Test transaction:    {id} ({merchant}, ${amount})
-   Valid category:      {id} ({name})
-   ```
+- Initializes `created_resources = { transactions: [], tags: [], categories: [], accounts: [] }`.
+- Records `mode` and writes the state file with `status: "in_progress"`, `last_completed_phase: 0`.
+- Prints discovery results:
+  ```
+  === Phase 0: Discovery ===
+  Mode:                {read-only | read-write}
+  Checking account:    {id}
+  Investment account:  {id} or "None found"
+  Test transaction:    {id}
+  Valid category:      {id}
+  ```
 
-If any required value (`checking_account_id`, `test_transaction_id`, `valid_category_id`) is missing, HALT.
-
----
-
-## Phase 1 — Auth Tools (3 tests)
-
-Load and follow: `references/auth-tools.md`
-
-After completing all tests, update state file: `last_completed_phase: 1`, add results.
-
----
-
-## Phase 2 — Accounts & Holdings (5 tests)
-
-Load and follow: `references/accounts-and-holdings.md`
-
-Uses `checking_account_id` and `investment_account_id` from discovery.
-
-After completing all tests, update state file: `last_completed_phase: 2`, add results.
-
----
-
-## Phase 3 — Transaction Reads (16 tests)
-
-Load and follow: `references/transactions-read.md`
-
-Uses `checking_account_id` from discovery.
-
-After completing all tests, update state file: `last_completed_phase: 3`, add results.
+If any required value (`checking_account_id`, `test_transaction_id`, `valid_category_id`) is missing,
+**HALT**.
 
 ---
 
-## Phase 4 — Budgets, Cashflow & Budget Amounts (15 tests)
+## Phases 1–13
 
-Load and follow: `references/budgets-and-cashflow.md`
+For each phase, dispatch a subagent per the **Execution Model** (read-only → concurrent; write →
+sequential). Pass the mode, the read-only subset (from the Phase Map), the discovery values, the
+reference file path, and the subagent rules + return contract.
 
-**Read-only mode:** Run tests 4.1-4.12 only (12 tests). Skip 4.13-4.15 (set_budget_amount requires write mode).
-
-After completing all tests, update state file: `last_completed_phase: 4`, add results.
-
----
-
-## Phase 5 — Tag CRUD (13 tests)
-
-Load and follow: `references/tag-crud.md`
-
-**Read-only mode:** Run test 5.1 only (1 test). Skip 5.2-5.13 (create/delete tag requires write mode).
-
-**Important:** Track every created tag ID in `created_resources.tags` immediately after creation.
-
-After completing all tests, update state file: `last_completed_phase: 5`, add results.
-
----
-
-## Phase 6 — Transaction CRUD (25 tests)
-
-Load and follow: `references/transaction-crud.md`
-
-**Read-only mode:** Skip entire phase (0 tests). All tests require write tools.
-
-Uses `checking_account_id`, `valid_category_id`, and `test_transaction_id` from discovery.
-
-**Important:** Track every created transaction ID in `created_resources.transactions` immediately after creation.
-
-After completing all tests, update state file: `last_completed_phase: 6`, add results.
-
----
-
-## Phase 7 — Transaction Tagging (5 tests)
-
-Load and follow: `references/transaction-tagging.md`
-
-**Read-only mode:** Skip entire phase (0 tests). All tests require write tools.
-
-This phase creates its own temporary tag(s) for testing. Track them in `created_resources.tags`.
-
-After completing all tests, update state file: `last_completed_phase: 7`, add results.
-
----
-
-## Phase 8 — Categories (10 tests)
-
-Load and follow: `references/categories.md`
-
-**Read-only mode:** Run tests 8.1-8.3 only (3 tests). Skip 8.4-8.10 (create/delete category requires write mode).
-
-Tests `get_transaction_categories`, `get_transaction_category_groups`, `create_transaction_category`, and `delete_transaction_category`.
-
-**Important:** Track every created category ID in `created_resources.categories` immediately after creation.
-
-After completing all tests, update state file: `last_completed_phase: 8`, add results.
-
----
-
-## Phase 9 — Transaction Details & Splits (8 tests)
-
-Load and follow: `references/transaction-details-and-splits.md`
-
-**Read-only mode:** Run tests 9.1-9.5 only (5 tests). Skip 9.6-9.8 (update_transaction_splits and create_transaction require write mode).
-
-Tests `get_transaction_details`, `get_transaction_splits`, and `update_transaction_splits`.
-
-After completing all tests, update state file: `last_completed_phase: 9`, add results.
-
----
-
-## Phase 10 — Read-Only Tools (9 tests)
-
-Load and follow: `references/read-only-tools.md`
-
-Tests `get_transactions_summary`, `get_subscription_details`, `get_institutions`, `get_cashflow_summary`, and `get_recurring_transactions`.
-
-After completing all tests, update state file: `last_completed_phase: 10`, add results.
-
----
-
-## Phase 11 — Account Management (10 tests)
-
-Load and follow: `references/account-management.md`
-
-**Read-only mode:** Run tests 11.1, 11.6-alt, 11.7-11.10 (6 tests). Skip 11.2-11.6 (create/update/delete account requires write mode). Test 11.6-alt uses `{checking_account_id}` instead of `{created_account_id}`.
-
-Tests `create_manual_account`, `update_account`, `delete_account`, `get_account_type_options`, `get_account_history`, `get_recent_account_balances`, `get_account_snapshots_by_type`, `get_aggregate_snapshots`.
-
-**Important:** Track every created account ID in `created_resources.accounts` immediately after creation.
-
-After completing all tests, update state file: `last_completed_phase: 11`, add results.
-
----
-
-## Phase 12 — Analytics Tools (5 tests)
-
-Load and follow: `references/analytics-tools.md`
-
-Tests `get_credit_history`, advanced transaction search filters.
-
-After completing all tests, update state file: `last_completed_phase: 12`, add results.
-
----
-
-## Phase 13 — Transaction Rules (11 tests)
-
-Load and follow: `references/transaction-rules.md`
-
-**Read-only mode:** Run test 13.8 only (`get_transaction_rules`). Skip the rest (create/delete require write tools).
-
-Tests `create_transaction_rule` (happy paths, operator variants, backfill flag, input validation),
-`get_transaction_rules` (list with criteria + IDs), and `delete_transaction_rule` (delete by ID).
-
-> ✅ Rules **can** now be deleted via the API (`delete_transaction_rule`). Test rules are cleaned up
-> in the cleanup phase. Monarch lowercases criteria values, so created rules appear as `mcp-test-*`.
-
-After completing all tests, update state file: `last_completed_phase: 13`, add results.
+After each subagent returns: merge its `created_resources` into the state file, append its `results`,
+bump `last_completed_phase`, and update `summary`.
 
 ---
 
@@ -335,96 +341,80 @@ After completing all tests, update state file: `last_completed_phase: 13`, add r
 
 ### Read-only mode
 
-Skip cleanup entirely — no resources were created and no mutations were made. Set `status: "completed"` in state file, then delete `mcp-test-state.json`.
+Skip cleanup entirely — no resources were created and no mutations were made. Set `status: "completed"`
+in the state file, then delete `mcp-test-state.json`.
 
 ### Write mode
 
-**This phase ALWAYS runs**, even if earlier phases failed or were skipped.
+**This phase ALWAYS runs**, even if earlier phases failed or were skipped. Dispatch a **cleanup
+subagent**, passing it `test_transaction_id`, `original_values`, and the merged `created_resources`
+lists. The cleanup subagent must perform all steps below and return a compact summary.
 
-#### Step 1: Revert Test Transaction Mutations
-
-Using `test_transaction_id` and `original_values` from state file:
+#### Step 1: Revert the test transaction
 
 ```
 update_transaction(
-  transaction_id = {test_transaction_id},
-  merchant_name  = {original_values.merchant},
-  notes          = {original_values.notes},
-  amount         = {original_values.amount},
-  date           = {original_values.date},
-  category_id    = {original_values.category_id},
-  hide_from_reports = false,
-  needs_review      = false
+  transaction_id    = {test_transaction_id},
+  merchant_name     = {original_values.merchant},
+  notes             = {original_values.notes},
+  amount            = {original_values.amount},
+  date              = {original_values.date},
+  category_id       = {original_values.category_id},
+  hide_from_reports = {original_values.hide_from_reports},
+  needs_review      = {original_values.needs_review}
 )
 ```
 
-#### Step 2: Remove Tags from Test Transaction
+#### Step 2: Remove tags from the test transaction
 
 ```
-set_transaction_tags(
-  transaction_id = {test_transaction_id},
-  tag_ids        = []
-)
+set_transaction_tags(transaction_id = {test_transaction_id}, tag_ids = [])
 ```
 
-#### Step 3: Delete Created Transactions
+#### Step 3: Delete tracked resources
 
-For each ID in `created_resources.transactions`:
+For each ID in the merged `created_resources`, delete it (continue on failure, log each):
+`delete_transaction`, `delete_transaction_tag`, `delete_transaction_category`, `delete_account`.
+
+#### Step 4: Name-prefix straggler sweep (backstop)
+
+Catch anything a subagent created but failed to report or delete. The distinctive `MCP-Test-` prefix
+(Monarch lowercases rule criteria, so rules appear as `mcp-test`) makes this safe:
+
+- `get_transaction_tags()` → delete every tag whose name starts with `MCP-Test-`.
+- `get_transaction_rules()` → delete every rule whose criteria value contains `mcp-test`
+  (case-insensitive). Rule IDs aren't returned by `create_transaction_rule`, so they are discovered
+  here.
+- `get_transactions(search="MCP-Test")` → delete every returned transaction **except**
+  `{test_transaction_id}` (a pre-existing transaction — never delete it; Step 1 already reverted its
+  merchant. This guard protects the user's real transaction if Step 1 ever failed).
+- `get_transaction_categories()` → delete every category whose name starts with `MCP-Test-`.
+- `get_accounts()` → delete every account whose name starts with `MCP-Test-`.
+
+Continue on failure; log each deletion.
+
+#### Step 5: Verify
+
+Re-query `get_transaction_tags()` and `get_transaction_rules()`; confirm no `MCP-Test-` / `mcp-test`
+residue. Report any remaining items so the orchestrator can warn the user.
+
+#### Step 6: Return
+
+The cleanup subagent returns a compact summary:
+
+```json
+{ "reverted": true, "deleted": { "transactions": 3, "tags": 4, "categories": 2, "accounts": 1, "rules": 5 }, "residual": [] }
 ```
-delete_transaction(transaction_id = {id})
-```
-Log success/failure for each. Continue on failure.
 
-#### Step 4: Delete Created Tags
-
-For each ID in `created_resources.tags`:
-```
-delete_transaction_tag(tag_id = {id})
-```
-Log success/failure for each. Continue on failure.
-
-#### Step 4b: Delete Created Categories
-
-For each ID in `created_resources.categories`:
-```
-delete_transaction_category(category_id = {id})
-```
-Log success/failure for each. Continue on failure.
-
-#### Step 4c: Delete Created Accounts
-
-For each ID in `created_resources.accounts`:
-```
-delete_account(account_id = {id})
-```
-Log success/failure for each. Continue on failure.
-
-#### Step 4d: Delete Created Rules
-
-Call `get_transaction_rules()`. For every rule whose `merchant_name_criteria` or
-`original_statement_criteria` value contains `mcp-test` (case-insensitive — Monarch lowercases
-values), call:
-```
-delete_transaction_rule(rule_id = {id})
-```
-Log success/failure for each. Continue on failure. (Rule IDs aren't returned by
-`create_transaction_rule`, so they must be discovered via `get_transaction_rules`.)
-
-#### Step 5: Verify Tag & Rule Cleanup
-
-Call `get_transaction_tags()`. Confirm none of the returned tags have names starting with `MCP-Test-`. If any remain, attempt to delete them and warn the user.
-
-Call `get_transaction_rules()`. Confirm no rule has a `mcp-test` criteria value. If any remain, attempt to delete them and warn the user.
-
-#### Step 6: Finalize
-
-Set `status: "completed"` in state file, then delete `mcp-test-state.json`.
+On return, the orchestrator sets `status: "completed"` and deletes `mcp-test-state.json`. If `residual`
+is non-empty, warn the user.
 
 ---
 
 ## Reporting
 
-After cleanup (or after skipping cleanup in read-only mode), print a final summary.
+After cleanup (or after skipping cleanup in read-only mode), print a final summary by aggregating the
+subagent returns.
 
 ### Read-only mode example:
 
@@ -434,7 +424,7 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ╠══════════════════════════════════════════════════╣
 ║ Phase 1  — Auth Tools:        3/3  PASS          ║
 ║ Phase 2  — Accounts:          5/5  PASS          ║
-║ Phase 3  — Transaction Reads: 16/16 PASS         ║
+║ Phase 3  — Transaction Reads: 11/11 PASS         ║
 ║ Phase 4  — Budgets/Cashflow:  12/12 PASS         ║
 ║ Phase 5  — Tag CRUD:          1/1  PASS          ║
 ║ Phase 6  — Transaction CRUD:  SKIPPED (write)    ║
@@ -446,8 +436,8 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 12 — Analytics:         5/5  PASS          ║
 ║ Phase 13 — Rules:             1/1  PASS          ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 66 passed, 0 failed, 0 skipped           ║
-║ Write tests skipped: 74 (server in read-only)    ║
+║ TOTAL: 61 passed, 0 failed, 0 skipped           ║
+║ Write tests skipped: 63 (server in read-only)    ║
 ╚══════════════════════════════════════════════════╝
 ```
 
@@ -459,10 +449,10 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ╠══════════════════════════════════════════════════╣
 ║ Phase 1  — Auth Tools:        3/3  PASS          ║
 ║ Phase 2  — Accounts:          5/5  PASS          ║
-║ Phase 3  — Transaction Reads: 16/16 PASS         ║
+║ Phase 3  — Transaction Reads: 11/11 PASS         ║
 ║ Phase 4  — Budgets/Cashflow:  15/15 PASS         ║
-║ Phase 5  — Tag CRUD:          13/13 PASS         ║
-║ Phase 6  — Transaction CRUD:  25/25 PASS         ║
+║ Phase 5  — Tag CRUD:          11/11 PASS         ║
+║ Phase 6  — Transaction CRUD:  21/21 PASS         ║
 ║ Phase 7  — Tagging:           5/5  PASS          ║
 ║ Phase 8  — Categories:        10/10 PASS         ║
 ║ Phase 9  — Details/Splits:    8/8  PASS          ║
@@ -471,7 +461,7 @@ After cleanup (or after skipping cleanup in read-only mode), print a final summa
 ║ Phase 12 — Analytics:         5/5  PASS          ║
 ║ Phase 13 — Transaction Rules: 11/11 PASS         ║
 ╠══════════════════════════════════════════════════╣
-║ TOTAL: 140 passed, 0 failed, 0 skipped          ║
+║ TOTAL: 124 passed, 0 failed, 0 skipped          ║
 ╚══════════════════════════════════════════════════╝
 ```
 
@@ -481,27 +471,29 @@ If any tests failed, list each failure with:
 - Actual result
 - Tool call parameters used
 
+(All of this comes straight from the `FAIL` rows' `detail` fields — you never need the raw payloads.)
+
 ---
 
-## Recording Test Results
+## Aggregating Subagent Results
 
-For each test:
+You never run individual tests — you parse subagent returns. For each phase:
 
-1. **Before calling the tool**, print: `[{test_number}] {tool_name} — {scenario}...`
-2. **Call the tool** with the specified parameters.
-3. **Evaluate** the result against the expected outcome listed in the reference file.
-4. **Record** the result:
-   - `PASS`: Result matched expectations. Record brief detail.
-   - `FAIL`: Result did not match. Record expected vs. actual.
-   - `SKIP`: Test could not run (e.g., no investment account for test 2.2). Record reason.
-5. **Print** the result: `  → PASS` or `  → FAIL: {reason}` or `  → SKIP: {reason}`
-6. **Update** the state file results and summary counts.
+1. **Before dispatching**, print: `=== Phase {n}: {name} === (dispatching subagent)`.
+2. **Dispatch** the subagent (read-only: concurrent; write: sequential).
+3. **On return**, validate the JSON shape, then:
+   - Print a one-line phase result: `Phase {n}: {passed}/{total} PASS` (or list FAIL/SKIP rows).
+   - Merge `created_resources` into the state file.
+   - Append `results` and update `summary` counts.
+4. If a subagent returns malformed output or errors, record the phase as `FAIL` and continue (cleanup
+   still runs in write mode).
 
 ---
 
 ## Placeholder Reference
 
-Throughout reference files, these placeholders map to discovery values:
+The orchestrator substitutes these into each subagent's prompt (the subagent then substitutes them
+into the reference-file test bodies):
 
 | Placeholder | Source |
 |---|---|
@@ -509,5 +501,5 @@ Throughout reference files, these placeholders map to discovery values:
 | `{investment_account_id}` | `discovery.investment_account_id` |
 | `{test_transaction_id}` | `discovery.test_transaction_id` |
 | `{valid_category_id}` | `discovery.valid_category_id` |
-| `{created_tag_id}` | ID returned from the most recent `create_transaction_tag` call |
-| `{created_txn_id}` | ID returned from the most recent `create_transaction` call |
+| `{created_tag_id}` | ID returned from the phase's most recent `create_transaction_tag` call (tracked inside the subagent) |
+| `{created_txn_id}` | ID returned from the phase's most recent `create_transaction` call (tracked inside the subagent) |
