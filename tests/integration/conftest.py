@@ -197,6 +197,32 @@ async def category_group_id(live_write_client):
     return candidates[0]["id"]
 
 
+@pytest.fixture
+async def second_category_id(live_write_client, category_id):
+    """A different category id than ``category_id`` (for split-rule legs)."""
+    cats = await _call_json(live_write_client, "get_transaction_categories")
+    pool = [c for c in cats if not c.get("is_disabled")] or cats
+    for cat in pool:
+        if cat["id"] != category_id:
+            return cat["id"]
+    return category_id
+
+
+@pytest.fixture
+async def tag_id(live_write_client):
+    """Create an MCP-Test- tag for rule-action tests; delete it on teardown."""
+    result = await _call_json(
+        live_write_client, "create_transaction_tag",
+        {"name": "MCP-Test-Rule-Tag", "color": "#19D2A5"},
+    )
+    new_id = _extract_id(result)
+    assert new_id, f"could not create a tag for rule tests: {result}"
+    try:
+        yield new_id
+    finally:
+        await live_write_client.call_tool("delete_transaction_tag", {"tag_id": new_id})
+
+
 # ── callable helpers exposed to tests ──────────────────────────────────
 
 @pytest.fixture
