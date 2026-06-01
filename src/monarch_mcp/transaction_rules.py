@@ -201,9 +201,16 @@ class SplitInfo(_RuleModel):
 
 
 class SplitTransactionsAction(_RuleModel):
-    """Split a matched transaction into multiple legs."""
+    """Split a matched transaction into multiple legs.
 
-    amount_type: str
+    ``amount_type`` must be one of Monarch's ``SplitAmountType`` values —
+    ``ABSOLUTE`` (per-leg dollar amounts) or ``PERCENTAGE`` (per-leg fractions
+    that sum to 1). Monarch's API silently *stores* an out-of-set value and then
+    fails to serialize it on read, so we validate it here rather than mint an
+    unreadable rule. At least two splits are required.
+    """
+
+    amount_type: Literal["ABSOLUTE", "PERCENTAGE"]
     splits_info: List[SplitInfo]
 
 

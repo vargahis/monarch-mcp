@@ -929,6 +929,32 @@ async def update_recurring_merchant(  # pylint: disable=too-many-arguments,too-m
 # ── Transaction rules (CRUD) ──────────────────────────────────────────
 
 
+async def _fetch_transaction_rules(client) -> Dict[str, Any]:
+    """Run ``GetTransactionRules``, tolerating field-level errors that still
+    return partial data.
+
+    A rule whose stored value can't be serialized by the current schema (e.g. an
+    ``amountType`` enum) makes Monarch return partial ``data`` alongside
+    ``errors``; gql raises ``TransportQueryError`` carrying that partial data. We
+    log it and use the partial data so one bad rule can't break listing — or
+    updating — the rest. A query error with no data still propagates.
+    """
+    try:
+        return await client.gql_call(
+            operation="GetTransactionRules",
+            graphql_query=gql(GET_RULES_QUERY),
+            variables={},
+        )
+    except TransportQueryError as exc:
+        if exc.data and isinstance(exc.data, dict):
+            logger.warning(
+                "get_transaction_rules: partial data returned due to field error(s): %s",
+                exc.errors,
+            )
+            return exc.data
+        raise
+
+
 @mcp.tool()
 @_handle_mcp_errors("getting transaction rules")
 async def get_transaction_rules() -> str:
@@ -947,11 +973,7 @@ async def get_transaction_rules() -> str:
 
     async def _get_transaction_rules():
         client = await _get_monarch_client()
-        return await client.gql_call(
-            operation="GetTransactionRules",
-            graphql_query=gql(GET_RULES_QUERY),
-            variables={},
-        )
+        return await _fetch_transaction_rules(client)
 
     result = await with_auth_recovery(_get_transaction_rules())
     rules = result.get("transactionRules", []) if isinstance(result, dict) else []
@@ -970,9 +992,12 @@ async def create_transaction_rule(rule: CreateTransactionRuleInput) -> str:
     - Tagging rule: also pass ``add_tags_action=["<tag_id>", ...]``.
     - Merchant rename: ``set_merchant_action="New Name"``.
     - Amount rule: ``amount_criteria={"operator": "gt", "isExpense": true,
-      "value": 100}``.
-    - Split rule: ``split_transactions_action={"amountType": "...",
-      "splitsInfo": [...]}``.
+      "value": 100}`` (operator is ``gt`` / ``lt`` / ``eq``).
+    - Split rule: ``split_transactions_action={"amountType": "PERCENTAGE",
+      "splitsInfo": [{"categoryId": "<id>", "amount": 0.6},
+      {"categoryId": "<id>", "amount": 0.4}]}`` — ``amountType`` is
+      ``ABSOLUTE`` (dollar amounts) or ``PERCENTAGE`` (fractions summing to 1);
+      at least two splits.
 
     Set ``apply_to_existing_transactions=true`` to also re-apply to past
     transactions. Field names follow Monarch's schema (camelCase aliases
@@ -1022,11 +1047,7 @@ async def update_transaction_rule(
 
     async def _fetch_rules():
         client = await _get_monarch_client()
-        return await client.gql_call(
-            operation="GetTransactionRules",
-            graphql_query=gql(GET_RULES_QUERY),
-            variables={},
-        )
+        return await _fetch_transaction_rules(client)
 
     rules_payload = await with_auth_recovery(_fetch_rules())
     rules = (rules_payload or {}).get("transactionRules") or []

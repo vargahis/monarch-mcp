@@ -4,6 +4,7 @@
 import json
 
 import pytest
+from gql.transport.exceptions import TransportQueryError
 from pydantic import ValidationError
 
 from monarch_mcp.transaction_rules import (
@@ -105,7 +106,7 @@ def test_create_input_nested_amount_and_splits():
             "valueRange": {"lower": 50, "upper": 150},
         },
         split_transactions_action={
-            "amountType": "absolute",
+            "amountType": "ABSOLUTE",
             "splitsInfo": [{"categoryId": "c1", "amount": 5}],
         },
     )
@@ -116,9 +117,25 @@ def test_create_input_nested_amount_and_splits():
     assert data["amountCriteria"]["value"] == 100.0
     assert data["amountCriteria"]["valueRange"] == {"lower": 50.0, "upper": 150.0}
     assert data["splitTransactionsAction"] == {
-        "amountType": "absolute",
+        "amountType": "ABSOLUTE",
         "splitsInfo": [{"categoryId": "c1", "amount": 5.0}],
     }
+
+
+def test_split_amount_type_rejects_invalid_value():
+    # Monarch's API stores an out-of-set amountType silently and then can't
+    # serialize it back (this was the live-test failure: 'absolute' lowercase).
+    # The model rejects it up front so we never mint an unreadable rule.
+    with pytest.raises(ValidationError):
+        CreateTransactionRuleInput(
+            split_transactions_action={
+                "amountType": "absolute",  # not a SplitAmountType — must be ABSOLUTE/PERCENTAGE
+                "splitsInfo": [
+                    {"categoryId": "c1", "amount": 0.5},
+                    {"categoryId": "c2", "amount": 0.5},
+                ],
+            },
+        )
 
 
 def test_create_input_requires_at_least_one_action():
@@ -413,3 +430,59 @@ async def test_write_tools_disabled_in_read_only(mcp_client, mock_monarch_client
     assert "delete_transaction_rule" not in tools
     # Read tool stays exposed.
     assert "get_transaction_rules" in tools
+
+
+# ── partial-data tolerance (field-level GraphQL errors) ────────────────
+
+
+async def test_get_transaction_rules_tolerates_partial_data(mcp_client, mock_monarch_client):
+    # A rule with an unserializable field makes Monarch return partial data
+    # alongside errors; gql raises TransportQueryError carrying that data. The
+    # tool should use the partial data rather than fail the whole call.
+    mock_monarch_client.gql_call.side_effect = TransportQueryError(
+        "cannot represent value",
+        errors=[{"message": "Enum 'AmountType' cannot represent value"}],
+        data={"transactionRules": [SAMPLE_RULE]},
+    )
+
+    result = json.loads(
+        (await mcp_client.call_tool("get_transaction_rules", {})).content[0].text
+    )
+
+    assert isinstance(result, list)
+    assert result[0]["id"] == "rule-1"
+
+
+async def test_get_transaction_rules_propagates_error_without_data(mcp_client, mock_monarch_client):
+    # A query error with no data is a real failure → graceful error string.
+    mock_monarch_client.gql_call.side_effect = TransportQueryError(
+        "hard failure", errors=[{"message": "boom"}],
+    )
+
+    text = (await mcp_client.call_tool("get_transaction_rules", {})).content[0].text
+
+    assert "Error getting transaction rules" in text
+
+
+async def test_update_transaction_rule_tolerates_partial_data(mcp_write_client, mock_monarch_client):
+    # The internal fetch hits the same partial-data path; as long as the target
+    # rule is present, the update still proceeds.
+    mock_monarch_client.gql_call.side_effect = [
+        TransportQueryError(
+            "cannot represent value",
+            errors=[{"message": "Enum 'AmountType' cannot represent value"}],
+            data={"transactionRules": [SAMPLE_RULE]},
+        ),
+        {"updateTransactionRuleV2": {"errors": None}},
+    ]
+
+    result = json.loads(
+        (await mcp_write_client.call_tool("update_transaction_rule", {
+            "rule_id": "rule-1",
+            "overrides": {"setCategoryAction": "cat-overridden"},
+        })).content[0].text
+    )
+
+    assert result["updated"] is True
+    payload = mock_monarch_client.gql_call.call_args_list[1][1]["variables"]["input"]
+    assert payload["setCategoryAction"] == "cat-overridden"
