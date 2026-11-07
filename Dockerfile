@@ -1,7 +1,7 @@
 # Dev image for the cookie-auth fork of vargahis/monarch-mcp.
 #
-# Installs THIS local (modified) MCP — its pyproject pins monarchmoneycommunity
-# to the #41 cookie-auth branch — plus mcp-proxy (stdio->SSE bridge) and a
+# Installs THIS local (modified) MCP — monarchmoneycommunity>=1.7 provides
+# cookie/CSRF auth — plus mcp-proxy (stdio->SSE bridge) and a
 # headless file keyring. Read-only by default (no --enable-write).
 #
 # Seed cookie auth once, then serve:
@@ -13,9 +13,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir mcp-proxy keyrings.alt
+RUN pip install --no-cache-dir "mcp-proxy~=0.14.0" keyrings.alt
 
-# Build the local MCP (pulls the #41 cookie-auth lib branch via pyproject).
+# Build the local MCP.
 COPY . /app/monarch-mcp
 WORKDIR /app/monarch-mcp
 RUN pip install --no-cache-dir .
@@ -28,4 +28,8 @@ ENV HOME=/data
 EXPOSE 7012
 
 # Serve: mcp-proxy runs the read-only `monarch-mcp` stdio server, exposed as SSE.
-CMD ["mcp-proxy", "--pass-environment", "--host", "0.0.0.0", "--port", "7012", "--named-server-config", "/config/servers.json"]
+# mcp-proxy >=0.14 rejects unknown Host headers (DNS-rebinding guard, HTTP 421);
+# trust the compose service name the gateways use.
+CMD ["mcp-proxy", "--pass-environment", "--host", "0.0.0.0", "--port", "7012", \
+     "--allowed-host", "monarch-money-mcp", "--allowed-host", "monarch-money-mcp:7012", \
+     "--named-server-config", "/config/servers.json"]

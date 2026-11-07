@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 
 - **Secure by design** — browser-based login, token stored in OS keychain (never in config files or env vars)
 - **Safe by default** — read-only mode prevents accidental changes; write tools require explicit opt-in
-- **Comprehensive** — 44 tools covering accounts, transactions, splits, budgets, cashflow, tags, categories, transaction rules, recurring merchants, and credit history
+- **Comprehensive** — 49 tools covering accounts, account data transfers, transactions, splits, budgets, cashflow, tags, categories, transaction rules, recurring merchants, and credit history
 - **Easy to install** — Claude Desktop extension (`.mcpb`), `uvx`, or `pip`
 
 **Two operating modes:**
@@ -181,6 +181,12 @@ Create a tag called "Business Expenses" in red
 | `create_manual_account` | Create manual account | write |
 | `update_account` | Update account settings | write |
 | `delete_account` | Delete an account | write |
+| `upload_account_balance_history` | Import daily balances (`[{date, amount}]`) for an account; overwrites those dates | write |
+| **Account data transfer** | | |
+| `get_account_transfer_eligibility` | Check whether Monarch allows a data transfer between accounts | read |
+| `preview_account_data_transfer` | Preview moving transaction/balance history from an old account to a new one (defaults to Monarch's recommended dates) | read |
+| `get_account_data_transfer_status` | Check whether a transfer is running and fetch its result | read |
+| `transfer_account_data` | Run Monarch's "Transfer data" tool using counts from the preview; aborts if the preview changed. Irreversible — back up first | write |
 | **Transactions** | | |
 | `get_transactions` | Get transactions with filtering (date, account, category, tag, search, needs\_review, and more) | read |
 | `get_transaction_details` | Get full transaction detail | read |

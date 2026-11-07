@@ -140,7 +140,7 @@ class SecureMonarchSession:
         back to the token.
         """
         cookies = getattr(mm, "_cookies", None)
-        if cookies:
+        if isinstance(cookies, dict) and cookies:
             self.save_cookies(cookies)
             return
         if mm.token:

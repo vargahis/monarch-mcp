@@ -34,6 +34,7 @@ WRITE_TOOL_NAMES = frozenset({
     "create_manual_account", "update_account", "delete_account",
     "update_recurring_merchant",
     "create_transaction_rule", "update_transaction_rule", "delete_transaction_rule",
+    "transfer_account_data", "upload_account_balance_history",
 })
 
 
