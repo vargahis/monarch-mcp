@@ -1,6 +1,9 @@
-# Phase 8 — Categories (10 tests)
+# Phase 8 — Categories (9 tests)
 
-> **Read-only mode:** Run tests 8.1-8.3 only. Skip 8.4-8.10 (create/delete category requires write mode).
+> **Read-only mode:** Run tests 8.1-8.3 only. Skip 8.4-8.9 (create/delete category requires write mode).
+
+> **Scope:** Happy reads/creates/delete plus one invalid-group error. The invalid-delete-id error
+> path lives in the live e2e suite (`tests/integration/test_categories_live.py`).
 
 ## 8.1 — get_transaction_categories: returns categories
 Call `get_transaction_categories()`.
@@ -36,7 +39,3 @@ Call `get_transaction_categories()` and verify the categories created in 8.4–8
 ## 8.9 — delete_transaction_category: happy path
 Call `delete_transaction_category(category_id={id from 8.5})`.
 **Expected:** JSON with `deleted: true`. Remove from `created_resources.categories`.
-
-## 8.10 — delete_transaction_category: invalid ID
-Call `delete_transaction_category(category_id="invalid-cat-id")`.
-**Expected:** Error response.

@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 
 - **Secure by design** — browser-based login, token stored in OS keychain (never in config files or env vars)
 - **Safe by default** — read-only mode prevents accidental changes; write tools require explicit opt-in
-- **Comprehensive** — 38 tools covering accounts, transactions, splits, budgets, cashflow, tags, categories, rules, and credit history
+- **Comprehensive** — 44 tools covering accounts, transactions, splits, budgets, cashflow, tags, categories, transaction rules, recurring merchants, and credit history
 - **Easy to install** — Claude Desktop extension (`.mcpb`), `uvx`, or `pip`
 
 **Two operating modes:**
@@ -187,10 +187,12 @@ Create a tag called "Business Expenses" in red
 | `get_transactions_summary` | Aggregate transaction stats | read |
 | `get_transaction_splits` | Get split information | read |
 | `get_recurring_transactions` | Get recurring transactions | read |
+| `find_merchant_id_by_name` | Search recent transactions for a merchant and return distinct IDs | read |
 | `create_transaction` | Create new transaction | write |
-| `update_transaction` | Update existing transaction | write |
+| `update_transaction` | Update existing transaction (clear notes with `clear_notes`, unlink goal with `clear_goal`) | write |
 | `delete_transaction` | Delete a transaction | write |
 | `update_transaction_splits` | Create/modify/delete splits | write |
+| `update_recurring_merchant` | Mark/unmark a merchant as recurring, update its frequency/amount, or deactivate it — `is_recurring` is required on every call (requires `--enable-write`) | write |
 | **Tags** | | |
 | `get_transaction_tags` | Get all tags | read |
 | `create_transaction_tag` | Create new tag | write |
@@ -202,7 +204,10 @@ Create a tag called "Business Expenses" in red
 | `create_transaction_category` | Create a category | write |
 | `delete_transaction_category` | Delete a category | write |
 | **Rules** | | |
-| `create_transaction_rule` | Create an auto-categorization rule | write |
+| `get_transaction_rules` | List every transaction rule with its criteria, actions, and recent application stats | read |
+| `create_transaction_rule` | Create a transaction rule with full criteria + actions (category, tags, merchant, amount, splits…) | write |
+| `update_transaction_rule` | Update a rule by id; merges overrides onto the current rule (handles Monarch's REPLACE semantics) | write |
+| `delete_transaction_rule` | Delete a rule by ID | write |
 | **Budgets & Cashflow** | | |
 | `get_budgets` | Get budget information | read |
 | `get_cashflow` | Get cashflow analysis | read |
@@ -211,6 +216,36 @@ Create a tag called "Business Expenses" in red
 | **Other** | | |
 | `get_subscription_details` | Get subscription status | read |
 | `get_credit_history` | Get credit score history | read |
+
+## Testing
+
+This project has two complementary test surfaces:
+
+**1. Mocked unit tests (the quality gate)** — fast, offline, no Monarch connection. These run in CI
+and must stay green:
+
+```bash
+uv run pytest tests/
+```
+
+The Monarch client is mocked, so these never touch a real account. Live e2e tests (below) are
+deselected by default.
+
+**2. Live end-to-end (e2e) integration tests** — exercise the MCP tools against a **real** Monarch
+account to verify they handle the live API robustly (adversarial/edge inputs, server-side error
+paths). They are opt-in and never run in CI:
+
+```bash
+MONARCH_LIVE_TESTS=1 uv run pytest tests/integration -m integration
+```
+
+Prerequisites: a stored keyring token (run `python login_setup.py` once), or `MONARCH_EMAIL` /
+`MONARCH_PASSWORD` in the environment. Without these, the suite skips. The tests create and delete
+data prefixed with `MCP-Test-` and self-clean (a post-suite sweep removes any residue). See
+[`tests/integration/README.md`](tests/integration/README.md) for details and safety notes.
+
+> There is also a separate **agent** test skill (`.claude/skills/test-monarch-mcp/`) that drives an
+> AI agent to verify it *calls* the tools correctly — distinct from the two pytest suites above.
 
 ## 🙏 Acknowledgments
 

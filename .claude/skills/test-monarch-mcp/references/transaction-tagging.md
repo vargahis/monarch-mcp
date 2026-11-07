@@ -1,6 +1,9 @@
-# Phase 7 — Transaction Tagging (5 tests)
+# Phase 7 — Transaction Tagging (4 tests)
 
 This phase tests `set_transaction_tags` by creating temporary test tags, applying them to the test transaction, and cleaning up.
+
+> **Scope:** Happy paths (apply one, apply many, remove all) plus one invalid-transaction-id error.
+> The "non-existent tag id" behavior check now lives in the live e2e suite (`tests/integration/`).
 
 **Setup:** Before running tests, create two temporary tags:
 ```
@@ -73,20 +76,6 @@ set_transaction_tags(
 
 **Validation:** Response is an error string. No unhandled exception.
 
----
-
-## Test 7.5 — set_transaction_tags: Non-Existent tag_id
-
-**Tool call:**
-```
-set_transaction_tags(
-  transaction_id = "{test_transaction_id}",
-  tag_ids        = ["non-existent-tag-id-00000"]
-)
-```
-
-**Expected:** A graceful error, or the API silently ignores the invalid tag ID.
-
-**Validation:** Either an error string or a success response (observation test — record what happens). No crash.
-
-**Cleanup note:** After this test, run `set_transaction_tags(transaction_id = "{test_transaction_id}", tag_ids = [])` to clear any tags that may have been applied.
+**Cleanup note:** Test 7.3 already cleared all tags from `{test_transaction_id}`. If you ran tests
+out of order, run `set_transaction_tags(transaction_id = "{test_transaction_id}", tag_ids = [])` to
+clear any remaining tags before finishing the phase.

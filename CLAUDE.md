@@ -32,10 +32,13 @@ Must score **10.00/10**. There is no pylint config file; the project uses pylint
 
 ## Test Coverage — Update on Feature Changes
 
-When new MCP tool functionality is added or existing tools are updated, **both** of the following must be updated:
+When new MCP tool functionality is added or existing tools are updated, update the relevant test surfaces below. There are **three**, each with a distinct job:
 
-1. **Unit tests** in `tests/` — pytest, mocked via `conftest.py` fixtures
-2. **Integration skill** at `.claude/skills/test-monarch-mcp/` — update `SKILL.md` and reference files in `references/`
+1. **Mocked unit tests** in `tests/` — pytest, mocked via `conftest.py` fixtures. The quality gate; runs in CI. Home for deterministic validation logic (required-field checks, mutual-exclusion, regex/format validation).
+2. **Live e2e integration tests** in `tests/integration/` — pytest against a **real** Monarch account, opt-in via `MONARCH_LIVE_TESTS=1` (deselected by default, never in CI). Home for **tool robustness** against the live API: adversarial/edge inputs and live error paths (invalid ids, server-side rejections). Self-cleaning (`MCP-Test-` prefix).
+3. **Agent test skill** at `.claude/skills/test-monarch-mcp/` — drives an AI agent to verify it *calls* the tools correctly (right tool, right params, correct response interpretation). Keep it to happy paths, agent-judgment cases, and one representative graceful-error case per tool family. Update `SKILL.md` (including test counts) and the `references/` files.
+
+**Routing rule:** agent-judgment → skill; tool robustness / live-API error paths → `tests/integration/`; deterministic validation → mocked unit tests.
 
 ## No Absolute Paths
 

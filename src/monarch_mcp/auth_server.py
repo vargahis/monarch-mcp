@@ -32,6 +32,18 @@ _AUTH_TIMEOUT = 600  # 10 minutes
 _auth_lock = threading.Lock()
 _auth_guard: dict[str, bool] = {"active": False}
 
+# Generic client-facing messages for unexpected errors. The real exception is
+# written to the server log (stderr) only; we deliberately do not echo it to the
+# browser (CWE-209), but we point the operator to where the detail lives.
+_LOGIN_ERROR_MESSAGE = (
+    "Login failed due to an unexpected error. "
+    "Please try again, or check the server logs for details."
+)
+_MFA_ERROR_MESSAGE = (
+    "MFA verification failed due to an unexpected error. "
+    "Please try again, or check the server logs for details."
+)
+
 # ── HTML served to the browser ──────────────────────────────────────────
 
 _LOGIN_PAGE = """\
@@ -218,17 +230,66 @@ class _AuthState:
     awaiting_mfa: bool = False
     completed: bool = False
 
+    def clear_secrets(self) -> None:
+        """Drop the cached credentials once they are no longer needed.
+
+        The password is cached only to span the MFA challenge; scrub it (and
+        the email) as soon as auth completes or the server shuts down so it
+        does not linger in memory for the lifetime of the process.
+        """
+        self.email = ""
+        self.password = ""
+        self.awaiting_mfa = False
+
 
 class _AuthHandler(BaseHTTPRequestHandler):
     """HTTP handler that serves the login page and processes auth requests."""
 
     # Attached by the factory before the server starts
     auth_state: _AuthState
+    expected_port: int
+
+    # ── Request guards (CSRF / DNS-rebinding hardening) ──
+
+    def _allowed_hosts(self) -> set[str]:
+        """Host header values that correspond to this loopback server."""
+        return {
+            f"127.0.0.1:{self.expected_port}",
+            f"localhost:{self.expected_port}",
+        }
+
+    def _allowed_origins(self) -> set[str]:
+        """Origin header values permitted to call the auth endpoints."""
+        return {
+            f"http://127.0.0.1:{self.expected_port}",
+            f"http://localhost:{self.expected_port}",
+        }
+
+    def _is_trusted_request(self) -> bool:
+        """Reject DNS-rebinding (foreign Host) and cross-origin requests.
+
+        This server only ever talks to a same-origin page it served itself
+        on ``http://127.0.0.1:<port>``.  Enforcing the Host header blocks
+        DNS-rebinding attacks; enforcing the Origin header (when present)
+        blocks cross-site requests.
+        """
+        host = self.headers.get("Host", "")
+        if host not in self._allowed_hosts():
+            logger.warning("Rejected request with unexpected Host header: %r", host)
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in self._allowed_origins():
+            logger.warning("Rejected cross-origin request (Origin: %r)", origin)
+            return False
+        return True
 
     # ── GET ──
 
     def do_GET(self):  # pylint: disable=invalid-name
         """Serve the login page for GET /."""
+        if not self._is_trusted_request():
+            self.send_error(403)
+            return
         if self.path == "/":
             self._send_html(_LOGIN_PAGE)
         else:
@@ -238,6 +299,20 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # pylint: disable=invalid-name
         """Handle POST requests for /login and /mfa."""
+        if not self._is_trusted_request():
+            self.send_error(403)
+            return
+
+        # Require an application/json body.  A cross-site fetch can only set
+        # this Content-Type by triggering a CORS preflight, which this server
+        # (sending no Access-Control-* headers) will fail — closing the
+        # login-CSRF vector that CORS-"simple" content types would leave open.
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            logger.warning("Rejected POST with non-JSON Content-Type: %r", content_type)
+            self.send_error(403)
+            return
+
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode()
@@ -281,7 +356,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
             self._send_json({"mfa_required": True})
 
         except LoginFailedException:
-            logger.error("Login failed for %s: invalid credentials", email)
+            logger.error("Login failed: invalid credentials")
             self._send_json({"error": "Invalid email or password."})
 
         except TransportServerError as exc:
@@ -293,7 +368,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Unexpected error during login: %s", exc)
-            self._send_json({"error": f"Login failed: {exc}"})
+            self._send_json({"error": _LOGIN_ERROR_MESSAGE})
 
     def _handle_mfa(self, data: dict):
         """Verify the MFA code and complete authentication."""
@@ -319,6 +394,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
             secure_session.save_authenticated_session(mm)
             self.auth_state.completed = True
+            self.auth_state.clear_secrets()
             logger.info("Browser authentication successful (with MFA)")
             self._send_json({"success": True})
 
@@ -335,7 +411,7 @@ class _AuthHandler(BaseHTTPRequestHandler):
 
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logger.error("Unexpected error during MFA: %s", exc)
-            self._send_json({"error": f"MFA verification failed: {exc}"})
+            self._send_json({"error": _MFA_ERROR_MESSAGE})
 
     # ── Response helpers ──
 
@@ -424,11 +500,11 @@ def trigger_auth_flow() -> None:
     port = _find_free_port()
     state = _AuthState()
 
-    # Create a handler class that carries our state
+    # Create a handler class that carries our state and expected port
     handler_class = type(
         "_BoundAuthHandler",
         (_AuthHandler,),
-        {"auth_state": state},
+        {"auth_state": state, "expected_port": port},
     )
 
     server = HTTPServer(("127.0.0.1", port), handler_class)
@@ -450,6 +526,7 @@ def trigger_auth_flow() -> None:
             if state.completed:
                 logger.info("Auth server stopped — authentication complete")
         finally:
+            state.clear_secrets()
             with _auth_lock:
                 _auth_guard["active"] = False
 

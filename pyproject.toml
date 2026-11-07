@@ -76,3 +76,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: live end-to-end tests against a real Monarch account (deselected by default; require MONARCH_LIVE_TESTS=1 and credentials)",
+]
+addopts = "-m 'not integration'"

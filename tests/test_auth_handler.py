@@ -24,10 +24,25 @@ from monarch_mcp.auth_server import (
 # ── Handler factory ───────────────────────────────────────────────
 
 
-def _make_handler(path="/", method="GET", body=None):
-    """Create an _AuthHandler wired for unit testing without sockets."""
+def _make_handler(
+    path="/",
+    method="GET",
+    body=None,
+    *,
+    expected_port=8080,
+    content_type="application/json",
+    host="127.0.0.1:8080",
+    origin="http://127.0.0.1:8080",
+):
+    """Create an _AuthHandler wired for unit testing without sockets.
+
+    Defaults produce a same-origin, JSON request that passes the
+    Host/Origin/Content-Type guards.  Pass ``None`` for ``content_type``,
+    ``host``, or ``origin`` to omit that header.
+    """
     handler = object.__new__(_AuthHandler)
     handler.auth_state = _AuthState()
+    handler.expected_port = expected_port
     handler.path = path
 
     # Wire up the response plumbing
@@ -41,10 +56,19 @@ def _make_handler(path="/", method="GET", body=None):
     if body is not None:
         raw = json.dumps(body).encode() if isinstance(body, dict) else body
         handler.rfile = io.BytesIO(raw)
-        handler.headers = {"Content-Length": str(len(raw))}
+        content_length = str(len(raw))
     else:
         handler.rfile = io.BytesIO(b"")
-        handler.headers = {"Content-Length": "0"}
+        content_length = "0"
+
+    headers = {"Content-Length": content_length}
+    if content_type is not None:
+        headers["Content-Type"] = content_type
+    if host is not None:
+        headers["Host"] = host
+    if origin is not None:
+        headers["Origin"] = origin
+    handler.headers = headers
 
     return handler
 
@@ -159,6 +183,35 @@ def test_mfa_success():
     assert resp["success"] is True
 
 
+def test_auth_state_clear_secrets():
+    state = _AuthState(email="a@b.com", password="pass", awaiting_mfa=True)
+    state.clear_secrets()
+
+    assert state.email == ""
+    assert state.password == ""
+    assert state.awaiting_mfa is False
+
+
+def test_mfa_success_clears_cached_credentials():
+    # The plaintext password (cached across the MFA challenge) must not
+    # linger in memory after authentication completes.
+    handler = _make_handler()
+    handler._send_json = Mock()
+    handler.auth_state.email = "a@b.com"
+    handler.auth_state.password = "pass"
+    handler.auth_state.awaiting_mfa = True
+
+    with (
+        patch("monarch_mcp.auth_server.MonarchMoney"),
+        patch("monarch_mcp.auth_server._run_sync"),
+        patch("monarch_mcp.auth_server.secure_session"),
+    ):
+        handler._handle_mfa({"code": "123456"})
+
+    assert handler.auth_state.email == ""
+    assert handler.auth_state.password == ""
+
+
 # ===================================================================
 # _send_json / _send_html
 # ===================================================================
@@ -264,7 +317,12 @@ def test_do_post_unknown_route():
 def test_do_post_invalid_json():
     handler = _make_handler(path="/login")
     handler.rfile = io.BytesIO(b"not-json{{{")
-    handler.headers = {"Content-Length": "11"}
+    handler.headers = {
+        "Content-Length": "11",
+        "Content-Type": "application/json",
+        "Host": "127.0.0.1:8080",
+        "Origin": "http://127.0.0.1:8080",
+    }
     handler._send_json = Mock()
 
     handler.do_POST()
@@ -326,3 +384,158 @@ def test_validate_token_server_error():
         result = _validate_token("some-token")
 
     assert result is None
+
+
+# ===================================================================
+# Request-origin guards (CSRF / DNS-rebinding hardening)
+# ===================================================================
+
+
+def test_do_post_rejects_non_json_content_type():
+    # A cross-site fetch can dodge a CORS preflight by sending a "simple"
+    # Content-Type like text/plain. Such a request must be rejected before
+    # any authentication side effect (login-CSRF).
+    handler = _make_handler(
+        path="/login",
+        body={"email": "attacker@evil.com", "password": "x"},
+        content_type="text/plain",
+    )
+    handler._send_json = Mock()
+    handler._handle_login = Mock()
+    handler.do_POST()
+
+    handler.send_error.assert_called_once_with(403)
+    handler._handle_login.assert_not_called()
+
+
+def test_do_post_rejects_cross_origin():
+    handler = _make_handler(
+        path="/login",
+        body={"email": "attacker@evil.com", "password": "x"},
+        origin="https://evil.example",
+    )
+    handler._send_json = Mock()
+    handler._handle_login = Mock()
+    handler.do_POST()
+
+    handler.send_error.assert_called_once_with(403)
+    handler._handle_login.assert_not_called()
+
+
+def test_do_post_rejects_unexpected_host():
+    # DNS-rebinding: a rebound hostname that resolves to 127.0.0.1.
+    handler = _make_handler(
+        path="/login",
+        body={"email": "attacker@evil.com", "password": "x"},
+        host="attacker.example",
+    )
+    handler._send_json = Mock()
+    handler._handle_login = Mock()
+    handler.do_POST()
+
+    handler.send_error.assert_called_once_with(403)
+    handler._handle_login.assert_not_called()
+
+
+def test_do_get_rejects_unexpected_host():
+    handler = _make_handler(path="/", host="attacker.example")
+    handler._send_html = Mock()
+    handler.do_GET()
+
+    handler.send_error.assert_called_once_with(403)
+    handler._send_html.assert_not_called()
+
+
+def test_do_post_allows_request_without_origin_header():
+    # Non-browser clients (which omit Origin) on the correct loopback Host
+    # are still served, as long as Content-Type is application/json.
+    handler = _make_handler(
+        path="/login",
+        body={"email": "", "password": ""},
+        origin=None,
+    )
+    handler._send_json = Mock()
+    handler.do_POST()
+
+    handler.send_error.assert_not_called()
+    resp = handler._send_json.call_args[0][0]
+    assert "error" in resp
+    assert "required" in resp["error"].lower()
+
+
+# ===================================================================
+# Error-message hygiene (no internal details leaked to the client)
+# ===================================================================
+
+
+def test_login_unexpected_error_returns_generic_message():
+    handler = _make_handler()
+    handler._send_json = Mock()
+    with (
+        patch("monarch_mcp.auth_server.MonarchMoney"),
+        patch(
+            "monarch_mcp.auth_server._run_sync",
+            side_effect=RuntimeError("internal stack detail xyz"),
+        ),
+    ):
+        handler._handle_login({"email": "a@b.com", "password": "pass"})
+
+    resp = handler._send_json.call_args[0][0]
+    assert "error" in resp
+    assert "internal stack detail xyz" not in resp["error"]
+    # Points the operator to where the real detail lives, without leaking it.
+    assert "logs" in resp["error"].lower()
+
+
+def test_mfa_unexpected_error_returns_generic_message():
+    handler = _make_handler()
+    handler._send_json = Mock()
+    handler.auth_state.email = "a@b.com"
+    handler.auth_state.password = "pass"
+    handler.auth_state.awaiting_mfa = True
+    with (
+        patch("monarch_mcp.auth_server.MonarchMoney"),
+        patch(
+            "monarch_mcp.auth_server._run_sync",
+            side_effect=RuntimeError("internal stack detail xyz"),
+        ),
+    ):
+        handler._handle_mfa({"code": "123456"})
+
+    resp = handler._send_json.call_args[0][0]
+    assert "error" in resp
+    assert "internal stack detail xyz" not in resp["error"]
+    # Points the operator to where the real detail lives, without leaking it.
+    assert "logs" in resp["error"].lower()
+
+
+# ===================================================================
+# PII hygiene (account email not written to logs)
+# ===================================================================
+
+
+def test_login_failure_does_not_log_email():
+    from monarchmoney import LoginFailedException  # pylint: disable=import-outside-toplevel
+
+    handler = _make_handler()
+    handler._send_json = Mock()
+    with (
+        patch("monarch_mcp.auth_server.MonarchMoney"),
+        patch(
+            "monarch_mcp.auth_server._run_sync",
+            side_effect=LoginFailedException(),
+        ),
+        patch("monarch_mcp.auth_server.logger") as mock_log,
+    ):
+        handler._handle_login({"email": "secret@example.com", "password": "pass"})
+
+    logged = " ".join(
+        str(arg)
+        for call in (
+            mock_log.error.call_args_list
+            + mock_log.info.call_args_list
+            + mock_log.warning.call_args_list
+        )
+        for arg in call[0]
+    )
+    assert "secret@example.com" not in logged

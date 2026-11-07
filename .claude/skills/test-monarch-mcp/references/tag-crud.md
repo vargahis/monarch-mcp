@@ -1,6 +1,10 @@
-# Phase 5 — Tag CRUD (13 tests)
+# Phase 5 — Tag CRUD (5 tests)
 
-> **Read-only mode:** Run test 5.1 only. Skip 5.2-5.13 (create/delete tag requires write mode).
+> **Read-only mode:** Run test 5.1 only. Skip 5.2-5.5 (create/delete tag requires write mode).
+
+> **Scope:** Happy create/delete + one validation error + the duplicate-name behavior check.
+> Adversarial names (unicode, 200+ chars, special characters) and delete error paths (invalid /
+> already-deleted ids) live in the live e2e suite (`tests/integration/test_tags_live.py`).
 
 **Important:** After every successful `create_transaction_tag` call, immediately append the returned tag ID to `created_resources.tags` in the state file before running the next test.
 
@@ -35,7 +39,7 @@ create_transaction_tag(name = "MCP-Test-Tag", color = "#FF5733")
 - `name` matches "MCP-Test-Tag".
 - `color` matches "#FF5733" (case-insensitive).
 
-**Immediately after:** Add the returned `id` to `created_resources.tags`. Save this ID as `{created_tag_id}` for use in tests 5.7, 5.11, 5.13.
+**Immediately after:** Add the returned `id` to `created_resources.tags`. Save this ID as `{created_tag_id}` for use in tests 5.4 and 5.5.
 
 **Cleanup:** Will be deleted in cleanup phase.
 
@@ -56,52 +60,7 @@ create_transaction_tag(name = "MCP-Test-BadColor", color = "red")
 
 ---
 
-## Test 5.4 — create_transaction_tag: Short Hex ("#F00")
-
-**Tool call:**
-```
-create_transaction_tag(name = "MCP-Test-ShortHex", color = "#F00")
-```
-
-**Expected:** A validation error indicating the color must be a full 6-digit hex.
-
-**Validation:** Response is a string containing "error", "invalid", "color", "hex", or "format" (case-insensitive). OR if the API accepts 3-digit hex, the tag is created successfully — in that case add the ID to `created_resources.tags`.
-
-**Cleanup:** If a tag was created, add its ID to `created_resources.tags`.
-
----
-
-## Test 5.5 — create_transaction_tag: Empty Name
-
-**Tool call:**
-```
-create_transaction_tag(name = "", color = "#FF5733")
-```
-
-**Expected:** An error indicating the name cannot be empty.
-
-**Validation:** Response is a string containing "error", "empty", "name", "required", or "blank" (case-insensitive).
-
-**Cleanup:** If a tag was created despite the error, add its ID to `created_resources.tags`.
-
----
-
-## Test 5.6 — create_transaction_tag: Whitespace Name
-
-**Tool call:**
-```
-create_transaction_tag(name = "   ", color = "#FF5733")
-```
-
-**Expected:** An error indicating the name cannot be empty/whitespace.
-
-**Validation:** Response is a string containing "error", "empty", "name", "required", "blank", or "whitespace" (case-insensitive). OR if the API accepts whitespace names, record as PASS (observation) and add ID to `created_resources.tags`.
-
-**Cleanup:** If a tag was created, add its ID to `created_resources.tags`.
-
----
-
-## Test 5.7 — create_transaction_tag: Duplicate Name
+## Test 5.4 — create_transaction_tag: Duplicate Name
 
 **Tool call:**
 ```
@@ -120,57 +79,7 @@ create_transaction_tag(name = "MCP-Test-Tag", color = "#33FF57")
 
 ---
 
-## Test 5.8 — create_transaction_tag: Unicode Name
-
-**Tool call:**
-```
-create_transaction_tag(name = "MCP-Test-テスト-🏷️", color = "#5733FF")
-```
-
-**Expected:** Either succeeds (tag created) or returns a graceful error.
-
-**Validation:** Response is either a valid tag object with `id` field, OR an error string. No crash.
-
-**Cleanup:** If a tag was created, add its ID to `created_resources.tags`.
-
----
-
-## Test 5.9 — create_transaction_tag: Long Name (200+ chars)
-
-**Tool call:**
-```
-create_transaction_tag(
-  name  = "MCP-Test-LongName-" + "A" * 200,
-  color = "#FF3357"
-)
-```
-
-Use a name that is "MCP-Test-LongName-" followed by 200 "A" characters (total ~218 chars).
-
-**Expected:** Either succeeds or returns a graceful error about name length.
-
-**Validation:** Response is either a valid tag object with `id` field, OR an error string. No crash.
-
-**Cleanup:** If a tag was created, add its ID to `created_resources.tags`.
-
----
-
-## Test 5.10 — create_transaction_tag: Special Characters
-
-**Tool call:**
-```
-create_transaction_tag(name = "MCP-Test-&'\"<>", color = "#33FFAA")
-```
-
-**Expected:** Either succeeds (special chars stored literally) or returns a graceful error.
-
-**Validation:** Response is either a valid tag object with `id` field, OR an error string. No crash. If created, verify the name is stored (may be HTML-encoded or literal).
-
-**Cleanup:** If a tag was created, add its ID to `created_resources.tags`.
-
----
-
-## Test 5.11 — delete_transaction_tag: Happy Path
+## Test 5.5 — delete_transaction_tag: Happy Path
 
 **Prerequisite:** `{created_tag_id}` from test 5.2 must exist.
 
@@ -184,35 +93,3 @@ delete_transaction_tag(tag_id = "{created_tag_id}")
 **Validation:** Response indicates successful deletion. Contains "deleted", "success", or `true`.
 
 **Cleanup:** Remove `{created_tag_id}` from `created_resources.tags` (already deleted).
-
----
-
-## Test 5.12 — delete_transaction_tag: Invalid ID
-
-**Tool call:**
-```
-delete_transaction_tag(tag_id = "invalid-tag-id-00000")
-```
-
-**Expected:** A graceful error indicating the tag was not found.
-
-**Validation:** Response is an error string. No unhandled exception.
-
-**Cleanup:** None.
-
----
-
-## Test 5.13 — delete_transaction_tag: Already-Deleted ID
-
-**Prerequisite:** `{created_tag_id}` from test 5.2 was deleted in test 5.11.
-
-**Tool call:**
-```
-delete_transaction_tag(tag_id = "{created_tag_id}")
-```
-
-**Expected:** A graceful error indicating the tag no longer exists.
-
-**Validation:** Response is an error string or indicates "not found" / "already deleted". No crash.
-
-**Cleanup:** None.

@@ -216,7 +216,10 @@ def test_login_handler_unexpected_error():
 
     response = handler._send_json.call_args[0][0]
     assert "error" in response
-    assert "network down" in response["error"]
+    # The raw exception text must not leak to the client (info disclosure).
+    assert "network down" not in response["error"]
+    assert "unexpected error" in response["error"].lower()
+    assert "logs" in response["error"].lower()
 
 
 # --- _handle_mfa ---
@@ -275,4 +278,7 @@ def test_mfa_handler_unexpected_error():
 
     response = handler._send_json.call_args[0][0]
     assert "error" in response
-    assert "timeout" in response["error"]
+    # The raw exception text must not leak to the client (info disclosure).
+    assert "timeout" not in response["error"]
+    assert "unexpected error" in response["error"].lower()
+    assert "logs" in response["error"].lower()

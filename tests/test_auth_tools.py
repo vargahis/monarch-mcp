@@ -10,7 +10,8 @@ async def test_check_auth_status_with_token(mcp_client):
 async def test_debug_session_loading_with_token(mcp_client):
     result = (await mcp_client.call_tool("debug_session_loading")).content[0].text
     assert "Token found in keyring" in result
-    assert "length:" in result
+    # The token length must not be exposed (near-zero entropy, but no reason to leak).
+    assert "length:" not in result
 
 
 async def test_setup_authentication(mcp_client):

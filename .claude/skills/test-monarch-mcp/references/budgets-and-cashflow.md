@@ -1,6 +1,9 @@
-# Phase 4 — Budgets, Cashflow & Budget Amounts (15 tests)
+# Phase 4 — Budgets, Cashflow & Budget Amounts (10 tests)
 
-> **Read-only mode:** Run tests 4.1-4.12 only. Skip 4.13-4.15 (set_budget_amount requires write mode).
+> **Read-only mode:** Run tests 4.1-4.8 only. Skip 4.9-4.10 (set_budget_amount requires write mode).
+
+> **Scope:** Keeps happy paths plus one representative "missing date" / "mutually exclusive args"
+> validation error per tool. Other validation permutations are covered by the mocked unit tests.
 
 ---
 
@@ -49,37 +52,7 @@ get_budgets(start_date = "2025-01-01")
 
 ---
 
-## Test 4.4 — get_budgets: Only end_date
-
-**Tool call:**
-```
-get_budgets(end_date = "2025-01-31")
-```
-
-**Expected:** An error message indicating both dates are required.
-
-**Validation:** Response is a string containing "both" or "required" or "start_date" (case-insensitive).
-
-**Cleanup:** None.
-
----
-
-## Test 4.5 — get_budgets: Invalid Date Format
-
-**Tool call:**
-```
-get_budgets(start_date = "not-a-date", end_date = "also-not-a-date")
-```
-
-**Expected:** A graceful error string indicating invalid date format.
-
-**Validation:** Response is a string containing "error", "invalid", "format", or "date" (case-insensitive).
-
-**Cleanup:** None.
-
----
-
-## Test 4.6 — get_budgets: Future Dates (2030)
+## Test 4.4 — get_budgets: Future Dates (2030)
 
 **Tool call:**
 ```
@@ -94,7 +67,7 @@ get_budgets(start_date = "2030-01-01", end_date = "2030-12-31")
 
 ---
 
-## Test 4.7 — get_cashflow: Both Dates (Jan 2025)
+## Test 4.5 — get_cashflow: Both Dates (Jan 2025)
 
 **Tool call:**
 ```
@@ -109,7 +82,7 @@ get_cashflow(start_date = "2025-01-01", end_date = "2025-01-31")
 
 ---
 
-## Test 4.8 — get_cashflow: No Dates (Defaults)
+## Test 4.6 — get_cashflow: No Dates (Defaults)
 
 **Tool call:**
 ```
@@ -124,7 +97,7 @@ get_cashflow()
 
 ---
 
-## Test 4.9 — get_cashflow: Only start_date
+## Test 4.7 — get_cashflow: Only start_date
 
 **Tool call:**
 ```
@@ -139,37 +112,7 @@ get_cashflow(start_date = "2025-01-01")
 
 ---
 
-## Test 4.10 — get_cashflow: Only end_date
-
-**Tool call:**
-```
-get_cashflow(end_date = "2025-01-31")
-```
-
-**Expected:** An error message indicating both dates are required.
-
-**Validation:** Response is a string containing "both" or "required" or "start_date" (case-insensitive).
-
-**Cleanup:** None.
-
----
-
-## Test 4.11 — get_cashflow: Invalid Date Format
-
-**Tool call:**
-```
-get_cashflow(start_date = "not-a-date", end_date = "also-not-a-date")
-```
-
-**Expected:** A graceful error string indicating invalid date format.
-
-**Validation:** Response is a string containing "error", "invalid", "format", or "date" (case-insensitive).
-
-**Cleanup:** None.
-
----
-
-## Test 4.12 — get_cashflow: Future Dates (2030)
+## Test 4.8 — get_cashflow: Future Dates (2030)
 
 **Tool call:**
 ```
@@ -184,7 +127,7 @@ get_cashflow(start_date = "2030-01-01", end_date = "2030-12-31")
 
 ---
 
-## Test 4.13 — set_budget_amount: with category_id
+## Test 4.9 — set_budget_amount: with category_id
 
 Pick a `category_id` from discovery (or use `{valid_category_id}`).
 
@@ -201,26 +144,11 @@ set_budget_amount(amount=500.0, category_id={valid_category_id})
 
 ---
 
-## Test 4.14 — set_budget_amount: both IDs -> error
+## Test 4.10 — set_budget_amount: both IDs -> error
 
 **Tool call:**
 ```
 set_budget_amount(amount=100.0, category_id="cat-1", category_group_id="grp-1")
-```
-
-**Expected:** JSON with `error` key about providing exactly one.
-
-**Validation:** Response contains "error" key with "exactly one" (case-insensitive).
-
-**Cleanup:** None.
-
----
-
-## Test 4.15 — set_budget_amount: neither ID -> error
-
-**Tool call:**
-```
-set_budget_amount(amount=100.0)
 ```
 
 **Expected:** JSON with `error` key about providing exactly one.
