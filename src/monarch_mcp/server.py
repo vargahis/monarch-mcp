@@ -2,6 +2,7 @@
 # pylint: disable=too-many-lines
 
 import argparse
+import asyncio
 import functools
 import inspect
 import json
@@ -16,7 +17,9 @@ from fastmcp import FastMCP
 from gql import gql
 from gql.transport.exceptions import TransportServerError, TransportQueryError, TransportError
 from monarchmoney import MonarchMoney
+from monarchmoney.monarchmoney import BalanceHistoryRow
 
+from monarch_mcp import account_transfer
 from monarch_mcp.secure_session import secure_session
 from monarch_mcp.auth_server import trigger_auth_flow, with_auth_recovery
 from monarch_mcp.transaction_rules import (
@@ -125,7 +128,7 @@ async def _get_monarch_client() -> MonarchMoney:
     client = secure_session.get_authenticated_client()
 
     if client is not None:
-        logger.info("Using authenticated client from secure keyring storage")
+        logger.info("Using authenticated client from keyring storage")
         return client
 
     # If no secure session, try environment credentials
@@ -191,10 +194,10 @@ headless environments where a browser is not available."""
 def check_auth_status() -> str:
     """Check if already authenticated with Monarch Money."""
     try:
-        # Check if we have a token in the keyring
-        token = secure_session.load_token()
-        if token:
-            status = "Authentication token found in secure keyring storage\n"
+        if secure_session.load_cookies():
+            status = "Authentication cookies found in configured keyring storage\n"
+        elif secure_session.load_token():
+            status = "Authentication token found in configured keyring storage\n"
         else:
             status = "No authentication token found in keyring\n"
 
@@ -215,6 +218,8 @@ def debug_session_loading() -> str:
     """Debug keyring session loading issues."""
     try:
         # Check keyring access
+        if secure_session.load_cookies():
+            return "Cookies found in keyring."
         token = secure_session.load_token()
         if token:
             return "Token found in keyring."
@@ -1603,6 +1608,337 @@ async def delete_account(account_id: str) -> str:
         {"deleted": True, "account_id": account_id, "result": result},
         indent=2,
         default=str,
+    )
+
+
+# ── Account data transfer (Monarch "Transfer data" tool) ──────────────
+
+@mcp.tool()
+@_handle_mcp_errors("getting account transfer eligibility")
+async def get_account_transfer_eligibility(account_ids: List[str]) -> str:
+    """
+    Check whether Monarch allows transferring data between the given accounts.
+
+    Args:
+        account_ids: Account IDs to check (normally [old_account_id, new_account_id])
+    """
+
+    async def _eligibility():
+        client = await _get_monarch_client()
+        return await account_transfer.fetch_eligibility(client, account_ids)
+
+    result = await with_auth_recovery(_eligibility())
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.tool()
+@_handle_mcp_errors("previewing account data transfer")
+async def preview_account_data_transfer(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    from_account_id: str,
+    to_account_id: str,
+    transfer_transactions: bool = True,
+    transactions_start_date: Optional[str] = None,
+    transactions_end_date: Optional[str] = None,
+    transfer_balances: bool = True,
+    balances_start_date: Optional[str] = None,
+    balances_end_date: Optional[str] = None,
+    include_window_transactions: bool = False,
+    include_preview_snapshots: bool = False,
+) -> str:
+    """
+    Preview moving transaction/balance history from an old account to a new one
+    (Monarch's "Transfer data" tool). Read-only; nothing is changed.
+
+    Unset dates default to Monarch's recommended dates. Transactions and
+    balances on/before the end date are moved; the destination's own data in
+    that range is deleted; data after the end date stays on the destination.
+
+    The response's ``transfer_input`` and ``expected_counts`` are the exact
+    arguments ``transfer_account_data`` requires.
+
+    Args:
+        from_account_id: Old account to move data from (it will be hidden)
+        to_account_id: New account to move data to
+        transfer_transactions: Whether to move transactions
+        transactions_start_date: Earliest transaction date to move (YYYY-MM-DD)
+        transactions_end_date: Transaction cutover date (YYYY-MM-DD)
+        transfer_balances: Whether to move balance history
+        balances_start_date: Earliest balance date to move (YYYY-MM-DD)
+        balances_end_date: Balance cutover date (YYYY-MM-DD)
+        include_window_transactions: Include transactions near the cutover
+        include_preview_snapshots: Include the resulting balance series
+    """
+
+    async def _preview():
+        client = await _get_monarch_client()
+        return await account_transfer.build_transfer_preview(
+            client,
+            from_account_id=from_account_id,
+            to_account_id=to_account_id,
+            transfer_transactions=transfer_transactions,
+            transactions_start_date=transactions_start_date,
+            transactions_end_date=transactions_end_date,
+            transfer_balances=transfer_balances,
+            balances_start_date=balances_start_date,
+            balances_end_date=balances_end_date,
+            include_window_transactions=include_window_transactions,
+            include_preview_snapshots=include_preview_snapshots,
+        )
+
+    preview = await with_auth_recovery(_preview())
+    return json.dumps(preview, indent=2, default=str)
+
+
+@mcp.tool()
+@_handle_mcp_errors("getting account data transfer status")
+async def get_account_data_transfer_status(
+    from_account_id: Optional[str] = None,
+    transfer_request_id: Optional[str] = None,
+) -> str:
+    """
+    Check an account data transfer: whether one is running for an account
+    and/or the final result of a transfer request.
+
+    Args:
+        from_account_id: Source account to check for an in-progress transfer
+        transfer_request_id: ID returned by transfer_account_data
+    """
+    if not from_account_id and not transfer_request_id:
+        raise RuntimeError("Provide from_account_id and/or transfer_request_id")
+
+    async def _status():
+        client = await _get_monarch_client()
+        out: Dict[str, Any] = {}
+        if from_account_id:
+            out["status"] = await account_transfer.fetch_transfer_status(
+                client, from_account_id
+            )
+        if transfer_request_id:
+            out["result"] = await account_transfer.fetch_transfer_result(
+                client, transfer_request_id
+            )
+        return out
+
+    result = await with_auth_recovery(_status())
+    return json.dumps(result, indent=2, default=str)
+
+
+def _check_transfer_accounts(
+    preview: Dict[str, Any], from_account_id: str, to_account_id: str
+) -> Optional[Dict[str, Any]]:
+    for key, account_id in (
+        ("from_account", from_account_id),
+        ("to_account", to_account_id),
+    ):
+        account = preview.get(key)
+        if not isinstance(account, dict) or account.get("id") != account_id:
+            return {"started": False, "reason": f"Could not verify {key}"}
+    eligibility = preview.get("eligibility")
+    if not isinstance(eligibility, dict) or eligibility.get("canTransfer") is not True:
+        return {
+            "started": False,
+            "reason": "Monarch did not confirm the transfer is allowed",
+            "eligibility": eligibility,
+        }
+    return None
+
+
+@mcp.tool(enabled=_WRITE_ENABLED)
+@_handle_mcp_errors("transferring account data")
+async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+    from_account_id: str,
+    to_account_id: str,
+    expected_from_transaction_count: int,
+    expected_to_transaction_count: int,
+    expected_balance_snapshot_count: int,
+    expected_to_balance_snapshot_count: int,
+    transfer_transactions: bool = True,
+    transactions_start_date: Optional[str] = None,
+    transactions_end_date: Optional[str] = None,
+    transfer_balances: bool = True,
+    balances_start_date: Optional[str] = None,
+    balances_end_date: Optional[str] = None,
+    cleanup_from_account: bool = True,
+    wait_seconds: int = 120,
+) -> str:
+    """
+    Move transaction/balance history from an old account to a new one using
+    Monarch's "Transfer data" tool. IRREVERSIBLE: overlapping destination
+    data on/before the cutover is deleted, and Monarch has no undo — take a
+    backup first.
+
+    Always call preview_account_data_transfer first and pass its
+    ``transfer_input`` values and ``expected_counts`` here. The preview is
+    re-run immediately before transferring and the call aborts if any count
+    changed or Monarch reports the accounts as ineligible.
+
+    Args:
+        from_account_id: Old account to move data from
+        to_account_id: New account to move data to
+        expected_from_transaction_count: expected_counts.from_account_transaction_count
+        expected_to_transaction_count: expected_counts.to_account_transaction_count
+        expected_balance_snapshot_count: expected_counts.balance_snapshot_count
+        expected_to_balance_snapshot_count: expected_counts.to_account_balance_snapshot_count
+        transfer_transactions: Whether to move transactions
+        transactions_start_date: transfer_input.transactions_start_date
+        transactions_end_date: transfer_input.transactions_end_date
+        transfer_balances: Whether to move balance history
+        balances_start_date: transfer_input.balances_start_date
+        balances_end_date: transfer_input.balances_end_date
+        cleanup_from_account: Hide the old account afterwards (web app default)
+        wait_seconds: How long to poll for completion (0 = return immediately)
+    """
+    if not transfer_transactions and not transfer_balances:
+        raise RuntimeError("Nothing to transfer: enable transactions and/or balances")
+    if not from_account_id or not to_account_id or from_account_id == to_account_id:
+        raise RuntimeError("Source and destination must be different, non-empty account IDs")
+    if transfer_transactions and not (transactions_start_date and transactions_end_date):
+        raise RuntimeError("Provide both transaction dates from the reviewed preview")
+    if transfer_balances and not (balances_start_date and balances_end_date):
+        raise RuntimeError("Provide both balance dates from the reviewed preview")
+
+    expected = {
+        "from_account_transaction_count": expected_from_transaction_count,
+        "to_account_transaction_count": expected_to_transaction_count,
+        "balance_snapshot_count": expected_balance_snapshot_count,
+        "to_account_balance_snapshot_count": expected_to_balance_snapshot_count,
+    }
+    if any(count < 0 for count in expected.values()):
+        raise RuntimeError("Expected preview counts cannot be negative")
+
+    async def _transfer():
+        client = await _get_monarch_client()
+
+        status = await account_transfer.fetch_transfer_status(client, from_account_id)
+        if not isinstance(status, dict) or status.get("inProgress") is not False:
+            return {
+                "started": False,
+                "reason": (
+                    "A transfer from this account is already in progress"
+                    if isinstance(status, dict) and status.get("inProgress") is True
+                    else "Could not verify that no transfer is in progress"
+                ),
+            }
+
+        preview = await account_transfer.build_transfer_preview(
+            client,
+            from_account_id=from_account_id,
+            to_account_id=to_account_id,
+            transfer_transactions=transfer_transactions,
+            transactions_start_date=transactions_start_date,
+            transactions_end_date=transactions_end_date,
+            transfer_balances=transfer_balances,
+            balances_start_date=balances_start_date,
+            balances_end_date=balances_end_date,
+        )
+        account_error = _check_transfer_accounts(preview, from_account_id, to_account_id)
+        if account_error:
+            return account_error
+        if preview["expected_counts"] != expected:
+            return {
+                "started": False,
+                "reason": "Preview counts changed; re-run preview_account_data_transfer and review",
+                "expected_counts": expected,
+                "current_counts": preview["expected_counts"],
+            }
+        transfer_input = preview["transfer_input"]
+        if (
+            transfer_input["transfer_transactions"] != transfer_transactions
+            or transfer_input["transfer_balances"] != transfer_balances
+        ):
+            return {
+                "started": False,
+                "reason": "Requested data type has nothing to transfer",
+                "warnings": preview["warnings"],
+            }
+
+        mutation_input = account_transfer.build_mutation_input(
+            transfer_input, expected, cleanup_from_account
+        )
+        try:
+            started = await account_transfer.execute_transfer(client, mutation_input)
+        except (TransportError, OSError, asyncio.TimeoutError) as exc:
+            raise RuntimeError(
+                "The transfer request may have been submitted, but its outcome is unknown. "
+                "Check the account and transfer status before retrying."
+            ) from exc
+        if started.get("errors"):
+            return {"started": False, "errors": started["errors"], "input": mutation_input}
+
+        request_id = started.get("transferRequestId")
+        if not isinstance(request_id, str) or not request_id:
+            raise RuntimeError(
+                "Monarch returned no transfer request ID; the outcome is unknown. "
+                "Check the account and transfer status before retrying."
+            )
+        out: Dict[str, Any] = {
+            "started": True,
+            "transfer_request_id": request_id,
+            "input": mutation_input,
+        }
+        deadline = asyncio.get_running_loop().time() + max(wait_seconds, 0)
+        while asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(3)
+            try:
+                result = await account_transfer.fetch_transfer_result(client, request_id)
+            except (TransportError, OSError, asyncio.TimeoutError) as exc:
+                logger.warning("Could not check transfer %s: %s", request_id, exc)
+                out["result"] = None
+                out["note"] = "Could not check the result; poll this request ID before retrying"
+                out["poll_error"] = str(exc)
+                break
+            if result and result.get("success") is not None:
+                out["result"] = result
+                break
+        else:
+            out["result"] = None
+            out["note"] = "Result not yet confirmed; poll get_account_data_transfer_status"
+        return out
+
+    result = await with_auth_recovery(_transfer())
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.tool(enabled=_WRITE_ENABLED)
+@_handle_mcp_errors("uploading account balance history")
+async def upload_account_balance_history(
+    account_id: str,
+    balances: List[Dict[str, Any]],
+    wait_seconds: int = 60,
+) -> str:
+    """
+    Upload daily balance history for an account (Monarch's balance-history
+    CSV import). Existing snapshots on the uploaded dates are overwritten.
+
+    Args:
+        account_id: Account to apply the balances to
+        balances: List of {"date": "YYYY-MM-DD", "amount": float}
+        wait_seconds: How long to wait for Monarch to finish parsing
+    """
+    if not balances:
+        raise RuntimeError("balances cannot be empty")
+    rows = []
+    for item in balances:
+        try:
+            rows.append(
+                BalanceHistoryRow(
+                    date=datetime.strptime(str(item["date"]), "%Y-%m-%d"),
+                    amount=float(item["amount"]),
+                )
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"Invalid balance row {item!r}: {exc}") from exc
+
+    async def _upload():
+        client = await _get_monarch_client()
+        return await client.upload_account_balance_history(
+            account_id, rows, timeout=max(wait_seconds, 1)
+        )
+
+    completed = await with_auth_recovery(_upload())
+    return json.dumps(
+        {"account_id": account_id, "rows": len(rows), "completed": bool(completed)},
+        indent=2,
     )
 
 

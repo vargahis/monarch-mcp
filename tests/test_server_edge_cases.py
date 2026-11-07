@@ -101,6 +101,7 @@ async def test_check_auth_with_env_email(mcp_client, monkeypatch):
 
 async def test_check_auth_exception(mcp_client):
     with patch("monarch_mcp.server.secure_session") as mock_ss:
+        mock_ss.load_cookies.return_value = None
         mock_ss.load_token.side_effect = RuntimeError("boom")
         result = (await mcp_client.call_tool("check_auth_status")).content[0].text
 
@@ -122,6 +123,7 @@ async def test_debug_session_no_token(mcp_client):
 
 async def test_debug_session_exception(mcp_client):
     with patch("monarch_mcp.server.secure_session") as mock_ss:
+        mock_ss.load_cookies.return_value = None
         mock_ss.load_token.side_effect = RuntimeError("keyring busted")
         result = (await mcp_client.call_tool("debug_session_loading")).content[0].text
 

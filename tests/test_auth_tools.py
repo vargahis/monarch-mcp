@@ -19,3 +19,11 @@ async def test_setup_authentication(mcp_client):
     assert "Authentication" in result
     assert "\n" in result  # multi-line instructions
     assert "get_accounts" in result
+
+
+async def test_check_auth_status_with_cookies(mcp_client, mock_monarch_client):  # pylint: disable=unused-argument
+    from unittest.mock import patch  # pylint: disable=import-outside-toplevel
+    with patch("monarch_mcp.secure_session.keyring") as mock_kr:
+        mock_kr.get_password.return_value = '{"session_id": "s", "csrftoken": "c"}'
+        result = (await mcp_client.call_tool("check_auth_status")).content[0].text
+    assert "Authentication cookies found" in result

@@ -153,10 +153,24 @@ def test_save_session_with_token(session):
     mm = MagicMock()
     mm.token = "tok-xyz"
     session.save_token = MagicMock()
+    session.delete_cookies = MagicMock()
 
     session.save_authenticated_session(mm)
 
     session.save_token.assert_called_once_with("tok-xyz")
+    session.delete_cookies.assert_called_once()
+
+
+def test_save_session_does_not_clear_cookies_when_token_save_fails(session):
+    mm = MagicMock()
+    mm.token = "tok-xyz"
+    session.save_token = MagicMock(side_effect=RuntimeError("keyring locked"))
+    session.delete_cookies = MagicMock()
+
+    with pytest.raises(RuntimeError, match="keyring locked"):
+        session.save_authenticated_session(mm)
+
+    session.delete_cookies.assert_not_called()
 
 
 def test_save_session_no_token(session):

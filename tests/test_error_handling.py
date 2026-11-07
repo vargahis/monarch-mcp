@@ -28,7 +28,7 @@ async def test_with_auth_recovery_401_triggers_recovery():
             await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_called_once()
-        mock_auth.assert_called_once()
+        mock_auth.assert_called_once_with(force=True)
 
 
 async def test_with_auth_recovery_login_failed_triggers_recovery():
@@ -44,7 +44,7 @@ async def test_with_auth_recovery_login_failed_triggers_recovery():
             await with_auth_recovery(_failing())
 
         mock_session.delete_token.assert_called_once()
-        mock_auth.assert_called_once()
+        mock_auth.assert_called_once_with(force=True)
 
 
 async def test_with_auth_recovery_non_auth_500_propagates():

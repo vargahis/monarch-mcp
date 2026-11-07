@@ -212,7 +212,7 @@ async def with_auth_recovery(coro):
         if is_auth_error(exc):
             logger.warning("Token appears expired — clearing and triggering re-auth")
             secure_session.delete_token()
-            trigger_auth_flow()
+            trigger_auth_flow(force=True)
             raise RuntimeError(
                 "Your session has expired. A login page has been opened in "
                 "your browser — please sign in and try again."
@@ -460,7 +460,7 @@ def _validate_token(token: str) -> bool | None:
         return None
 
 
-def trigger_auth_flow() -> None:
+def trigger_auth_flow(*, force: bool = False) -> None:
     """Check for existing credentials; if absent, open a browser login page.
 
     This is non-blocking: a daemon thread runs the temporary HTTP server
@@ -472,6 +472,13 @@ def trigger_auth_flow() -> None:
     with _auth_lock:
         if _auth_guard["active"]:
             logger.info("Auth server already running — skipping")
+            return
+
+        # A cookie session is checked on its first authenticated request.
+        cookies = secure_session.load_cookies()
+        if not force and isinstance(cookies, dict) and cookies.get("session_id") \
+                and cookies.get("csrftoken"):
+            logger.info("Authentication cookies found — skipping browser auth")
             return
 
         # Check keyring token — validate it's still usable
