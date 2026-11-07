@@ -2,9 +2,10 @@
 Secure session management for Monarch Money MCP Server using keyring.
 """
 
+import json
 import logging
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 import keyring
 from monarchmoney import MonarchMoney, LoginFailedException
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Keyring service identifiers
 KEYRING_SERVICE = "com.mcp.monarch-mcp"
 KEYRING_USERNAME = "monarch-token"
+KEYRING_COOKIES_USERNAME = "monarch-cookies"
 
 
 class SecureMonarchSession:
@@ -60,26 +62,91 @@ class SecureMonarchSession:
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Failed to delete token from keyring: %s", e)
 
-    def get_authenticated_client(self) -> Optional[MonarchMoney]:
-        """Get an authenticated MonarchMoney client."""
-        token = self.load_token()
-        if not token:
+    # ------------------------------------------------------------------ #
+    # Cookie credentials (Monarch cookie/CSRF auth — monarchmoney #41)    #
+    # ------------------------------------------------------------------ #
+    def save_cookies(self, cookies: Dict[str, str]) -> None:
+        """Save browser session cookies (session_id + csrftoken) to keyring."""
+        try:
+            keyring.set_password(
+                KEYRING_SERVICE, KEYRING_COOKIES_USERNAME, json.dumps(cookies)
+            )
+            logger.info("Cookies saved securely to keyring (%d keys)", len(cookies))
+            self._cleanup_old_session_files()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to save cookies to keyring: %s", e)
+            raise
+
+    def load_cookies(self) -> Optional[Dict[str, str]]:
+        """Load browser session cookies from the system keyring."""
+        try:
+            raw = keyring.get_password(KEYRING_SERVICE, KEYRING_COOKIES_USERNAME)
+            if raw:
+                logger.info("Cookies loaded from keyring")
+                return json.loads(raw)
+            logger.info("No cookies found in keyring")
+            return None
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to load cookies from keyring: %s", e)
             return None
 
+    def delete_cookies(self) -> None:
+        """Delete stored cookies from the system keyring."""
         try:
-            client = MonarchMoney(token=token)
-            logger.info("MonarchMoney client created with stored token")
-            return client
+            keyring.delete_password(KEYRING_SERVICE, KEYRING_COOKIES_USERNAME)
+            logger.info("Cookies deleted from keyring")
+        except keyring.errors.PasswordDeleteError:
+            logger.info("No cookies found in keyring to delete")
         except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Failed to create MonarchMoney client: %s", e)
-            return None
+            logger.error("Failed to delete cookies from keyring: %s", e)
+
+    # ------------------------------------------------------------------ #
+    # Unified client construction / persistence (cookies preferred)      #
+    # ------------------------------------------------------------------ #
+    def get_authenticated_client(self) -> Optional[MonarchMoney]:
+        """Get an authenticated MonarchMoney client.
+
+        Prefers cookie auth (current Monarch requirement) and falls back to a
+        stored token for accounts not yet migrated to cookie/CSRF auth.
+        """
+        cookies = self.load_cookies()
+        if cookies:
+            try:
+                client = MonarchMoney()
+                client.set_cookies(cookies)
+                logger.info("MonarchMoney client created with stored cookies")
+                return client
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Failed to create cookie-based client: %s", e)
+                # Fall through to token in case a valid one is still stored.
+
+        token = self.load_token()
+        if token:
+            try:
+                client = MonarchMoney(token=token)
+                logger.info("MonarchMoney client created with stored token")
+                return client
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Failed to create token-based client: %s", e)
+                return None
+
+        return None
 
     def save_authenticated_session(self, mm: MonarchMoney) -> None:
-        """Save the session from an authenticated MonarchMoney instance."""
+        """Persist whatever credential the client authenticated with.
+
+        Cookie auth has no ``token``; the cookie dict lives on ``mm._cookies``
+        (set by ``set_cookies`` / ``login_with_cookies``). Prefer it, then fall
+        back to the token.
+        """
+        cookies = getattr(mm, "_cookies", None)
+        if cookies:
+            self.save_cookies(cookies)
+            return
         if mm.token:
             self.save_token(mm.token)
-        else:
-            logger.warning("MonarchMoney instance has no token to save")
+            return
+        logger.warning("MonarchMoney instance has no cookies or token to save")
 
     def _cleanup_old_session_files(self) -> None:
         """Clean up old insecure session files."""
