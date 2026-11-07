@@ -18,7 +18,21 @@ from monarch_mcp.auth_server import (
     _AuthState,
     _find_free_port,
     _validate_token,
+    trigger_auth_flow,
 )
+
+
+def test_trigger_auth_flow_skips_browser_when_cookies_exist():
+    with (
+        patch("monarch_mcp.auth_server.secure_session") as mock_session,
+        patch("monarch_mcp.auth_server._find_free_port") as mock_port,
+        patch.dict("monarch_mcp.auth_server._auth_guard", {"active": False}),
+    ):
+        mock_session.load_cookies.return_value = {"session_id": "s", "csrftoken": "c"}
+        trigger_auth_flow()
+
+    mock_session.load_token.assert_not_called()
+    mock_port.assert_not_called()
 
 
 # ── Handler factory ───────────────────────────────────────────────

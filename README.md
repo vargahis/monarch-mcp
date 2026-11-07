@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server for integrating with the Monarch Money per
 
 ## Overview
 
-- **Secure by design** — browser-based login, token stored in OS keychain (never in config files or env vars)
+- **Credential storage** — browser-based login and a configurable keyring
 - **Safe by default** — read-only mode prevents accidental changes; write tools require explicit opt-in
 - **Comprehensive** — 49 tools covering accounts, account data transfers, transactions, splits, budgets, cashflow, tags, categories, transaction rules, recurring merchants, and credit history
 - **Easy to install** — Claude Desktop extension (`.mcpb`), `uvx`, or `pip`
@@ -135,6 +135,18 @@ Key details:
 - **Expired sessions re-authenticate automatically** — the browser login re-triggers on the next tool call
 - **MFA fully supported**
 - **Fallback**: run `python login_setup.py` in a terminal for headless environments
+
+For accounts requiring cookie/CSRF authentication, `cookie_login.py` in a
+source checkout can import a browser session into the configured keyring.
+Avoid pasting cookies into shell commands: the script documents a hidden-prompt
+alternative. Cookies are bearer credentials and environment variables can be
+visible to local processes and container administrators.
+
+The development Docker image requires an explicit keyring backend. A secure
+backend is recommended. Setting
+`PYTHON_KEYRING_BACKEND=keyrings.alt.file.PlaintextKeyring` opts into an
+**unencrypted** file on the mounted `/data` volume; anyone who can read that
+volume can reuse the credentials.
 
 For technical details on the auth architecture, see [docs/authentication.md](docs/authentication.md).
 

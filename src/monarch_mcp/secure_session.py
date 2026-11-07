@@ -26,7 +26,7 @@ class SecureMonarchSession:
         """Save the authentication token to the system keyring."""
         try:
             keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, token)
-            logger.info("Token saved securely to keyring")
+            logger.info("Token saved to keyring")
 
             # Clean up any old insecure files
             self._cleanup_old_session_files()
@@ -71,7 +71,7 @@ class SecureMonarchSession:
             keyring.set_password(
                 KEYRING_SERVICE, KEYRING_COOKIES_USERNAME, json.dumps(cookies)
             )
-            logger.info("Cookies saved securely to keyring (%d keys)", len(cookies))
+            logger.info("Cookies saved to keyring (%d keys)", len(cookies))
             self._cleanup_old_session_files()
         except Exception as e:  # pylint: disable=broad-exception-caught
             logger.error("Failed to save cookies to keyring: %s", e)
@@ -145,6 +145,7 @@ class SecureMonarchSession:
             return
         if mm.token:
             self.save_token(mm.token)
+            self.delete_cookies()
             return
         logger.warning("MonarchMoney instance has no cookies or token to save")
 

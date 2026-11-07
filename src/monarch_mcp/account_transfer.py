@@ -205,6 +205,14 @@ def _summarize_window(summary: Optional[Dict[str, Any]], include_window: bool) -
     return summary
 
 
+def _required_count(summary: Any, field: str, description: str) -> int:
+    """Reject incomplete previews rather than treating missing counts as zero."""
+    count = summary.get(field) if isinstance(summary, dict) else None
+    if type(count) is not int or count < 0:  # pylint: disable=unidiomatic-typecheck
+        raise RuntimeError(f"Monarch returned no valid {description} count")
+    return count
+
+
 async def build_transfer_preview(  # pylint: disable=too-many-arguments,too-many-locals
     client,
     *,
@@ -243,6 +251,7 @@ async def build_transfer_preview(  # pylint: disable=too-many-arguments,too-many
         "from_account_transaction_count": 0,
         "to_account_transaction_count": 0,
         "balance_snapshot_count": 0,
+        "to_account_balance_snapshot_count": 0,
     }
 
     tx_start = transactions_start_date or recommended.get("transactionsStartDate")
@@ -269,16 +278,24 @@ async def build_transfer_preview(  # pylint: disable=too-many-arguments,too-many
                     }
                 },
             )
-            data = raw.get("previewAccountDataTransferTransactions") or {}
+            data = raw.get("previewAccountDataTransferTransactions")
+            if not isinstance(data, dict):
+                raise RuntimeError("Monarch returned no transaction transfer preview")
+            from_data = data.get("fromAccountSummary")
+            to_data = data.get("toAccountSummary")
+            expected["from_account_transaction_count"] = _required_count(
+                from_data, "numTransactions", "source transaction"
+            )
+            expected["to_account_transaction_count"] = _required_count(
+                to_data, "numTransactions", "destination transaction"
+            )
             from_summary = _summarize_window(
-                data.get("fromAccountSummary"), include_window_transactions
+                from_data, include_window_transactions
             )
             to_summary = _summarize_window(
-                data.get("toAccountSummary"), include_window_transactions
+                to_data, include_window_transactions
             )
             tx_preview = {"fromAccountSummary": from_summary, "toAccountSummary": to_summary}
-            expected["from_account_transaction_count"] = from_summary.get("numTransactions") or 0
-            expected["to_account_transaction_count"] = to_summary.get("numTransactions") or 0
 
     bal_start = balances_start_date or recommended.get("snapshotsStartDate")
     bal_end = balances_end_date or recommended.get("snapshotsEndDate")
@@ -304,16 +321,22 @@ async def build_transfer_preview(  # pylint: disable=too-many-arguments,too-many
                     }
                 },
             )
-            data = dict(raw.get("previewAccountDataTransferSnapshots") or {})
+            snapshot_data = raw.get("previewAccountDataTransferSnapshots")
+            if not isinstance(snapshot_data, dict):
+                raise RuntimeError("Monarch returned no balance transfer preview")
+            expected["balance_snapshot_count"] = _required_count(
+                snapshot_data.get("fromAccountSummary"), "numSnapshots", "source balance"
+            )
+            expected["to_account_balance_snapshot_count"] = _required_count(
+                snapshot_data.get("toAccountSummary"), "numSnapshots", "destination balance"
+            )
+            data = dict(snapshot_data)
             snapshots = data.pop("previewSnapshots", None) or []
             if include_preview_snapshots:
                 data["previewSnapshots"] = snapshots
             else:
                 data["previewSnapshotCount"] = len(snapshots)
             bal_preview = data
-            expected["balance_snapshot_count"] = (
-                (data.get("fromAccountSummary") or {}).get("numSnapshots") or 0
-            )
 
     if eligibility and isinstance(eligibility, dict) and not eligibility.get("canTransfer"):
         warnings.append(f"Monarch reports transfer not allowed: {eligibility.get('reason')}")

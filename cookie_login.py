@@ -6,13 +6,17 @@ monarchmoneycommunity #41). This logs in using a browser Cookie header string
 and stores the validated cookies in the system keyring, where the MCP server's
 ``secure_session.get_authenticated_client()`` picks them up.
 
-Provide the cookie string via the ``MONARCH_COOKIE`` env var (keeps it out of
-shell history / argv). Get it from your browser:
+Provide the cookie string via the ``MONARCH_COOKIE`` env var. Environment
+variables may be visible to local processes or container administrators.
+Get it from your browser:
   DevTools -> Network -> any api.monarch.com/graphql request -> Request Headers
   -> copy the full ``Cookie:`` value (must include session_id and csrftoken).
 
-Usage:
-    MONARCH_COOKIE='session_id=...; csrftoken=...' python cookie_login.py
+Usage (Bash; the cookie is read without echoing or entering shell history):
+    read -rs MONARCH_COOKIE
+    export MONARCH_COOKIE
+    python cookie_login.py
+    unset MONARCH_COOKIE
 """
 import asyncio
 import os

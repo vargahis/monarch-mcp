@@ -128,7 +128,7 @@ async def _get_monarch_client() -> MonarchMoney:
     client = secure_session.get_authenticated_client()
 
     if client is not None:
-        logger.info("Using authenticated client from secure keyring storage")
+        logger.info("Using authenticated client from keyring storage")
         return client
 
     # If no secure session, try environment credentials
@@ -195,9 +195,9 @@ def check_auth_status() -> str:
     """Check if already authenticated with Monarch Money."""
     try:
         if secure_session.load_cookies():
-            status = "Authentication cookies found in secure keyring storage\n"
+            status = "Authentication cookies found in configured keyring storage\n"
         elif secure_session.load_token():
-            status = "Authentication token found in secure keyring storage\n"
+            status = "Authentication token found in configured keyring storage\n"
         else:
             status = "No authentication token found in keyring\n"
 
@@ -1723,6 +1723,26 @@ async def get_account_data_transfer_status(
     return json.dumps(result, indent=2, default=str)
 
 
+def _check_transfer_accounts(
+    preview: Dict[str, Any], from_account_id: str, to_account_id: str
+) -> Optional[Dict[str, Any]]:
+    for key, account_id in (
+        ("from_account", from_account_id),
+        ("to_account", to_account_id),
+    ):
+        account = preview.get(key)
+        if not isinstance(account, dict) or account.get("id") != account_id:
+            return {"started": False, "reason": f"Could not verify {key}"}
+    eligibility = preview.get("eligibility")
+    if not isinstance(eligibility, dict) or eligibility.get("canTransfer") is not True:
+        return {
+            "started": False,
+            "reason": "Monarch did not confirm the transfer is allowed",
+            "eligibility": eligibility,
+        }
+    return None
+
+
 @mcp.tool(enabled=_WRITE_ENABLED)
 @_handle_mcp_errors("transferring account data")
 async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
@@ -1731,6 +1751,7 @@ async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-
     expected_from_transaction_count: int,
     expected_to_transaction_count: int,
     expected_balance_snapshot_count: int,
+    expected_to_balance_snapshot_count: int,
     transfer_transactions: bool = True,
     transactions_start_date: Optional[str] = None,
     transactions_end_date: Optional[str] = None,
@@ -1757,6 +1778,7 @@ async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-
         expected_from_transaction_count: expected_counts.from_account_transaction_count
         expected_to_transaction_count: expected_counts.to_account_transaction_count
         expected_balance_snapshot_count: expected_counts.balance_snapshot_count
+        expected_to_balance_snapshot_count: expected_counts.to_account_balance_snapshot_count
         transfer_transactions: Whether to move transactions
         transactions_start_date: transfer_input.transactions_start_date
         transactions_end_date: transfer_input.transactions_end_date
@@ -1768,21 +1790,34 @@ async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-
     """
     if not transfer_transactions and not transfer_balances:
         raise RuntimeError("Nothing to transfer: enable transactions and/or balances")
+    if not from_account_id or not to_account_id or from_account_id == to_account_id:
+        raise RuntimeError("Source and destination must be different, non-empty account IDs")
+    if transfer_transactions and not (transactions_start_date and transactions_end_date):
+        raise RuntimeError("Provide both transaction dates from the reviewed preview")
+    if transfer_balances and not (balances_start_date and balances_end_date):
+        raise RuntimeError("Provide both balance dates from the reviewed preview")
 
     expected = {
         "from_account_transaction_count": expected_from_transaction_count,
         "to_account_transaction_count": expected_to_transaction_count,
         "balance_snapshot_count": expected_balance_snapshot_count,
+        "to_account_balance_snapshot_count": expected_to_balance_snapshot_count,
     }
+    if any(count < 0 for count in expected.values()):
+        raise RuntimeError("Expected preview counts cannot be negative")
 
     async def _transfer():
         client = await _get_monarch_client()
 
         status = await account_transfer.fetch_transfer_status(client, from_account_id)
-        if status and status.get("inProgress"):
+        if not isinstance(status, dict) or status.get("inProgress") is not False:
             return {
                 "started": False,
-                "reason": "A transfer from this account is already in progress",
+                "reason": (
+                    "A transfer from this account is already in progress"
+                    if isinstance(status, dict) and status.get("inProgress") is True
+                    else "Could not verify that no transfer is in progress"
+                ),
             }
 
         preview = await account_transfer.build_transfer_preview(
@@ -1796,13 +1831,9 @@ async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-
             balances_start_date=balances_start_date,
             balances_end_date=balances_end_date,
         )
-        eligibility = preview.get("eligibility")
-        if isinstance(eligibility, dict) and not eligibility.get("canTransfer"):
-            return {
-                "started": False,
-                "reason": "Monarch reports transfer not allowed",
-                "eligibility": eligibility,
-            }
+        account_error = _check_transfer_accounts(preview, from_account_id, to_account_id)
+        if account_error:
+            return account_error
         if preview["expected_counts"] != expected:
             return {
                 "started": False,
@@ -1824,26 +1855,44 @@ async def transfer_account_data(  # pylint: disable=too-many-arguments,too-many-
         mutation_input = account_transfer.build_mutation_input(
             transfer_input, expected, cleanup_from_account
         )
-        started = await account_transfer.execute_transfer(client, mutation_input)
+        try:
+            started = await account_transfer.execute_transfer(client, mutation_input)
+        except (TransportError, OSError, asyncio.TimeoutError) as exc:
+            raise RuntimeError(
+                "The transfer request may have been submitted, but its outcome is unknown. "
+                "Check the account and transfer status before retrying."
+            ) from exc
         if started.get("errors"):
             return {"started": False, "errors": started["errors"], "input": mutation_input}
 
         request_id = started.get("transferRequestId")
+        if not isinstance(request_id, str) or not request_id:
+            raise RuntimeError(
+                "Monarch returned no transfer request ID; the outcome is unknown. "
+                "Check the account and transfer status before retrying."
+            )
         out: Dict[str, Any] = {
             "started": True,
             "transfer_request_id": request_id,
             "input": mutation_input,
         }
         deadline = asyncio.get_running_loop().time() + max(wait_seconds, 0)
-        while request_id and asyncio.get_running_loop().time() < deadline:
+        while asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(3)
-            result = await account_transfer.fetch_transfer_result(client, request_id)
+            try:
+                result = await account_transfer.fetch_transfer_result(client, request_id)
+            except (TransportError, OSError, asyncio.TimeoutError) as exc:
+                logger.warning("Could not check transfer %s: %s", request_id, exc)
+                out["result"] = None
+                out["note"] = "Could not check the result; poll this request ID before retrying"
+                out["poll_error"] = str(exc)
+                break
             if result and result.get("success") is not None:
                 out["result"] = result
                 break
         else:
             out["result"] = None
-            out["note"] = "Still running; poll get_account_data_transfer_status"
+            out["note"] = "Result not yet confirmed; poll get_account_data_transfer_status"
         return out
 
     result = await with_auth_recovery(_transfer())

@@ -4,9 +4,9 @@
 # cookie/CSRF auth — plus mcp-proxy (stdio->SSE bridge) and a
 # headless file keyring. Read-only by default (no --enable-write).
 #
-# Seed cookie auth once, then serve:
-#   docker run --rm -e MONARCH_COOKIE='session_id=...; csrftoken=...' \
-#     -v monarch-token:/data --entrypoint python <image> cookie_login.py
+# No keyring is enabled by default. Configure a secure backend, or explicitly
+# opt into keyrings.alt.file.PlaintextKeyring for local use. Its /data volume
+# stores reusable cookies unencrypted and must be protected accordingly.
 FROM python:3.13-slim
 
 RUN apt-get update \
@@ -20,8 +20,8 @@ COPY . /app/monarch-mcp
 WORKDIR /app/monarch-mcp
 RUN pip install --no-cache-dir .
 
-# Headless keyring on the mounted /data volume (no OS keychain in a container).
-ENV KEYRING_BACKEND=keyrings.alt.file.PlaintextKeyring
+# Require an explicit keyring choice in headless containers.
+ENV PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring
 ENV XDG_DATA_HOME=/data
 ENV HOME=/data
 
